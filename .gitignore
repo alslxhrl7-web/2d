@@ -37,6 +37,7 @@ ExportedObj/
 *.csproj
 *.unityproj
 *.sln
+*.slnx
 *.suo
 *.tmp
 *.user
@@ -73,3 +74,7 @@ crashlytics-build.properties
 # Temporary auto-generated Android Assets
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# 실수로 프로젝트 폴더 안에 중첩 생성된 별도 저장소(깃허브 데스크톱에서 로컬 경로를
+# 잘못 지정해 만들어졌던 폴더). 진짜 프로젝트 루트는 이 저장소(2d 폴더) 자체입니다.
+/Defans/
