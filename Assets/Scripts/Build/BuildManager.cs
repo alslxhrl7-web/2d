@@ -72,8 +72,8 @@ namespace Defense2D
 
             _ghost = new GameObject("PlaceGhost");
             _ghostSr = _ghost.AddComponent<SpriteRenderer>();
-            _ghostSr.sprite = SpriteFactory.Triangle(new Color(1, 1, 1, 0.5f), new Color(1, 1, 1, 0.8f));
             _ghostSr.sortingOrder = 20;
+            ApplyTowerVisual(_ghostSr, _ghost.transform, _selected.Value); // 실제 배치될 타워와 동일한 아트/크기로 미리보기
 
             _rangeGhost = new GameObject("RangeGhost");
             var rsr = _rangeGhost.AddComponent<SpriteRenderer>();
@@ -131,14 +131,47 @@ namespace Defense2D
         {
             Vector3 pos = MouseWorld();
             if (!IsValidPlacement(pos)) return;
-            if (Game.Gold < GameConstants.TowerCost)
+
+            int cost = GameConstants.CostFor(_selected.Value); // [해설] 타워마다 비용이 다르므로 선택된 타입 기준으로 조회
+            if (Game.Gold < cost)
             {
                 Game.ShowBanner("골드가 부족합니다");
                 return;
             }
 
-            Game.SpendGold(GameConstants.TowerCost);
+            Game.SpendGold(cost);
             SpawnTower(_selected.Value, pos);
+        }
+
+        private const float TowerArtWorldHeight = 1.5f;
+
+        /// <summary>
+        /// 실제로 설치되는 타워와, 배치 전 미리보기(고스트)가 항상 같은 아트/크기를 쓰도록
+        /// 스프라이트 지정 로직을 한 곳에 모았다. Resources/Sprites/Tower_Arrow.png,
+        /// Tower_Ice.png, Tower_Cannon.png가 있으면 그 아트를 쓰고, 없으면 도형으로 대체한다.
+        /// </summary>
+        private void ApplyTowerVisual(SpriteRenderer sr, Transform t, TowerType type)
+        {
+            Sprite art = Resources.Load<Sprite>($"Sprites/Tower_{type}");
+            if (art != null)
+            {
+                sr.sprite = art;
+                sr.color = Color.white;
+                float scale = TowerArtWorldHeight / art.bounds.size.y;
+                t.localScale = new Vector3(scale, scale, 1f);
+            }
+            else
+            {
+                Color fill = type switch
+                {
+                    TowerType.Arrow => new Color(0.24f, 0.4f, 0.78f),
+                    TowerType.Ice => new Color(0.35f, 0.85f, 0.92f),
+                    TowerType.Cannon => new Color(0.95f, 0.58f, 0.28f),
+                    _ => Color.white
+                };
+                sr.sprite = SpriteFactory.Triangle(fill, Color.white);
+                t.localScale = Vector3.one;
+            }
         }
 
         private void SpawnTower(TowerType type, Vector3 pos)
@@ -147,15 +180,7 @@ namespace Defense2D
             go.transform.position = pos;
             var sr = go.AddComponent<SpriteRenderer>();
             sr.sortingOrder = 4;
-
-            Color fill = type switch
-            {
-                TowerType.Arrow => new Color(0.24f, 0.4f, 0.78f),
-                TowerType.Ice => new Color(0.35f, 0.85f, 0.92f),
-                TowerType.Cannon => new Color(0.95f, 0.58f, 0.28f),
-                _ => Color.white
-            };
-            sr.sprite = SpriteFactory.Triangle(fill, Color.white);
+            ApplyTowerVisual(sr, go.transform, type);
 
             switch (type)
             {

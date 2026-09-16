@@ -35,6 +35,11 @@ namespace Defense2D
             _gameManager = gm;
             _buildManager = bm;
             _abilityTimer = 2f;
+
+            // Init()에서 임시로 그려둔 도형(Diamond)을, 있으면 보스 번호별 전용 아트
+            // (Sprites/Boss_1 ~ Boss_5)로 덮어씌운다. 없으면 도형을 그대로 사용한다.
+            Sprite art = Resources.Load<Sprite>($"Sprites/Boss_{bossIndex}");
+            if (art != null) ApplyArt(art, BossArtWorldHeight);
         }
 
         protected override void Update()

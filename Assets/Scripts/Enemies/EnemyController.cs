@@ -23,8 +23,11 @@ namespace Defense2D
 
         [NonSerialized] public List<Vector3> Waypoints;
         private int _waypointIndex;
-        private SpriteRenderer _sr;
+        protected SpriteRenderer _sr;
         private Transform _hpFillTf;
+
+        private const float EnemyArtWorldHeight = 1.1f;
+        protected const float BossArtWorldHeight = 2.0f;
 
         private float _slowTimer;
         private float _slowFactor = 1f;
@@ -51,17 +54,28 @@ namespace Defense2D
             transform.position = waypoints[0];
 
             _sr = gameObject.AddComponent<SpriteRenderer>();
-            _sr.sprite = type switch
-            {
-                EnemyType.Mob => SpriteFactory.Circle(fill, outline),
-                EnemyType.Charger => SpriteFactory.Triangle(fill, outline),
-                EnemyType.Shield => SpriteFactory.Square(fill, outline),
-                _ => SpriteFactory.Diamond(fill, outline)
-            };
             _sr.sortingOrder = 5;
 
-            float scale = type == EnemyType.Shield ? 0.62f : type == EnemyType.Charger ? 0.5f : 0.55f;
-            transform.localScale = Vector3.one * scale;
+            // 실제 아트(Assets/Resources/Sprites/Enemy_Mob.png 등)가 있으면 그것을 쓰고,
+            // 없으면 기존 도형(SpriteFactory)으로 대체한다. 보스는 이 시점엔 아직 BossIndex를
+            // 모르므로 일단 도형으로 그려두고, InitBoss()에서 보스 전용 아트로 덮어씌운다.
+            Sprite art = type != EnemyType.Boss ? Resources.Load<Sprite>($"Sprites/Enemy_{type}") : null;
+            if (art != null)
+            {
+                ApplyArt(art, EnemyArtWorldHeight);
+            }
+            else
+            {
+                _sr.sprite = type switch
+                {
+                    EnemyType.Mob => SpriteFactory.Circle(fill, outline),
+                    EnemyType.Charger => SpriteFactory.Triangle(fill, outline),
+                    EnemyType.Shield => SpriteFactory.Square(fill, outline),
+                    _ => SpriteFactory.Diamond(fill, outline)
+                };
+                float scale = type == EnemyType.Shield ? 0.62f : type == EnemyType.Charger ? 0.5f : 0.55f;
+                transform.localScale = Vector3.one * scale;
+            }
 
             if (type == EnemyType.Shield) ShieldTowerDamageReduction = 0.5f;
 
@@ -86,6 +100,16 @@ namespace Defense2D
             fgSr.sortingOrder = 7;
             fg.transform.localScale = new Vector3(0.86f, 0.09f, 1f);
             _hpFillTf = fg.transform;
+        }
+
+        /// <summary>실제 아트 스프라이트를 적용하고, 지정한 월드 높이에 맞춰 스케일을 보정한다.
+        /// (기존 도형은 흰색 틴트를 쓰지 않으므로, 실제 아트 적용 시 색을 흰색으로 리셋한다.)</summary>
+        protected void ApplyArt(Sprite art, float desiredWorldHeight)
+        {
+            _sr.sprite = art;
+            _sr.color = Color.white;
+            float scale = desiredWorldHeight / art.bounds.size.y;
+            transform.localScale = new Vector3(scale, scale, 1f);
         }
 
         public void ApplySlow(float factor, float duration)

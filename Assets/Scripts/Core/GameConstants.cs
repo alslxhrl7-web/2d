@@ -10,11 +10,14 @@ namespace Defense2D
         public const int BossWaveInterval = 5;
 
         public const float BaseMaxHP = 100f;
-        public const int StartingGold = 120;
-        public const int TowerCost = 25; // 화살탑/빙결탑/포격탑 공통 비용 25 (기획서 기준)
+        public const int StartingGold = 50; // 시작 골드: 타워 2개(25*2) 정도만 세울 수 있게 축소
+        public const int TowerCost = 25; // 화살탑/빙결탑 공통 비용
+        public const int CannonTowerCost = 50; // [해설] 포격탑은 광역 폭발 데미지가 있어 다른 두 타워보다 비싸게 책정
 
-        public const int MaxActionPoints = 5; // 행동력 5칸
-        public const float ActionPointRegenSeconds = 14f;
+        /// <summary>[해설] 타워 종류별 건설 비용을 한 곳에서 관리한다. BuildManager(구매 처리)와
+        /// UIManager(건설 메뉴 버튼 문구)가 둘 다 이 메서드를 통해 비용을 물어보므로,
+        /// 나중에 타워별 가격이 또 바뀌어도 여기 한 곳만 고치면 된다.</summary>
+        public static int CostFor(TowerType type) => type == TowerType.Cannon ? CannonTowerCost : TowerCost;
 
         public const float PrepPhaseSeconds = 8f; // 준비 단계(건설/배치) 기본 시간
 

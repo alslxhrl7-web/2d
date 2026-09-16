@@ -19,7 +19,6 @@ namespace Defense2D
         public GameManager Game;
         public WaveManager Waves;
         public BuildManager Build;
-        public PlayerController Player;
 
         private Canvas _canvas;
         private Font _font;
@@ -29,9 +28,16 @@ namespace Defense2D
         private Text _waveText;
         private Text _enemiesText;
         private Text _goldText;
-        private readonly List<Image> _apPips = new List<Image>();
+
+        // 준비 단계의 "웨이브 시작" 버튼과 방어 단계의 "웨이브 스킵" 버튼을 하나로 통합한
+        // 단일 액션 버튼. 항상 같은 자리에 있고, 현재 상태에 맞는 동작/문구로 바뀐다.
+        private enum ActionMode { None, StartWave, SkipWave }
+        private Button _actionButton;
+        private Text _actionLabel;
+        private ActionMode _actionMode = ActionMode.None;
 
         private GameObject _buildPanel;
+        private Text _buildGoldText;
         private GameObject _prepPanel;
         private Text _prepText;
         private Text _prepCountdownText;
@@ -61,12 +67,7 @@ namespace Defense2D
 
         private static readonly List<UpgradeOption> AllUpgrades = new List<UpgradeOption>
         {
-            new UpgradeOption{ Kind = UpgradeKind.PlayerDamage, Label = "공격력 강화", Description = "플레이어 공격력 +25%" },
-            new UpgradeOption{ Kind = UpgradeKind.PlayerAttackSpeed, Label = "공격속도 강화", Description = "플레이어 공격 속도 증가" },
-            new UpgradeOption{ Kind = UpgradeKind.PlayerRange, Label = "사거리 강화", Description = "플레이어 공격 사거리 +20%" },
-            new UpgradeOption{ Kind = UpgradeKind.PlayerMoveSpeed, Label = "이동속도 강화", Description = "플레이어 이동속도 +15%" },
             new UpgradeOption{ Kind = UpgradeKind.BaseMaxHp, Label = "거점 보강", Description = "거점 최대 체력 +15% 및 즉시 일부 회복" },
-            new UpgradeOption{ Kind = UpgradeKind.SkillCooldown, Label = "스킬 숙련", Description = "행동력 회복 속도 증가" },
             new UpgradeOption{ Kind = UpgradeKind.GoldGain, Label = "재화 감각", Description = "골드 획득량 +20%" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Label = "타워 강화", Description = "모든 타워 공격력 +20%" },
         };
@@ -76,7 +77,7 @@ namespace Defense2D
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             BuildCanvas();
             BuildTopBar();
-            BuildActionPoints();
+            BuildActionButton();
             BuildBuildMenu();
             BuildPrepPanel();
             BuildBanner();
@@ -215,30 +216,59 @@ namespace Defense2D
                 new Vector2(1, 1), new Vector2(1, 1), new Vector2(160, 24), new Vector2(-20, -16));
         }
 
-        private void BuildActionPoints()
-        {
-            var row = CreatePanel("ActionPoints", _canvas.transform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(0, 0),
-                new Vector2(260, 40), new Vector2(20, 20), new Color(0, 0, 0, 0));
+        // ---------- 웨이브 시작/스킵 통합 버튼 ----------
 
-            for (int i = 0; i < GameConstants.MaxActionPoints; i++)
+        private void BuildActionButton()
+        {
+            _actionButton = CreateButton("ActionBtn", _canvas.transform, "웨이브 시작", new Vector2(150, 34),
+                new Vector2(-20, -90), new Vector2(1, 1), new Vector2(1, 1),
+                OnActionButtonClicked, new Color(0.2f, 0.55f, 0.25f, 0.92f));
+            _actionLabel = _actionButton.GetComponentInChildren<Text>();
+            _actionButton.gameObject.SetActive(false);
+        }
+
+        private void OnActionButtonClicked()
+        {
+            switch (_actionMode)
             {
-                var pipGo = new GameObject($"Pip{i}");
-                pipGo.transform.SetParent(row, false);
-                var rt = pipGo.AddComponent<RectTransform>();
-                rt.sizeDelta = new Vector2(28, 28);
-                rt.anchorMin = rt.anchorMax = new Vector2(0, 0);
-                rt.anchoredPosition = new Vector2(16 + i * 34, 16);
-                var img = pipGo.AddComponent<Image>();
-                img.sprite = SpriteFactory.Circle(new Color(1f, 0.65f, 0.2f), Color.white);
-                img.color = Color.white;
-                _apPips.Add(img);
+                case ActionMode.StartWave:
+                    Game.SkipPrep();
+                    break;
+                case ActionMode.SkipWave:
+                    Waves.SkipWave();
+                    break;
             }
         }
 
-        public void RefreshActionPoints()
+        /// <summary>
+        /// 준비 단계면 "웨이브 시작", 방어 단계(보스 제외)면 "웨이브 스킵"으로 같은 버튼이 동작한다.
+        /// 매 프레임 현재 게임 상태를 보고 버튼의 표시/문구/클릭 동작을 갱신한다.
+        /// </summary>
+        public void RefreshActionButton()
         {
-            for (int i = 0; i < _apPips.Count; i++)
-                _apPips[i].color = i < Player.ActionPoints ? Color.white : new Color(1, 1, 1, 0.2f);
+            if (_actionButton == null || Game == null) return;
+
+            if (Game.State == GameState.Prep)
+            {
+                _actionMode = ActionMode.StartWave;
+                _actionButton.gameObject.SetActive(true);
+                _actionButton.interactable = true;
+                _actionLabel.text = "웨이브 시작";
+                return;
+            }
+
+            if (Game.State == GameState.Defense && Waves != null && Waves.WaveInProgress && !Waves.IsBossWave)
+            {
+                _actionMode = ActionMode.SkipWave;
+                _actionButton.gameObject.SetActive(true);
+                bool canSkip = Waves.CanSkipWave;
+                _actionButton.interactable = canSkip;
+                _actionLabel.text = canSkip ? "웨이브 스킵!" : $"스킵까지 {Mathf.Max(0, Waves.SkipKillThreshold - Waves.KilledThisWave)}마리";
+                return;
+            }
+
+            _actionMode = ActionMode.None;
+            _actionButton.gameObject.SetActive(false);
         }
 
         // ---------- 건설 메뉴 ----------
@@ -246,7 +276,7 @@ namespace Defense2D
         private void BuildBuildMenu()
         {
             _buildPanel = CreatePanel("BuildMenu", _canvas.transform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0),
-                new Vector2(220, 220), new Vector2(-20, 20), new Color(0.05f, 0.08f, 0.15f, 0.92f)).gameObject;
+                new Vector2(220, 252), new Vector2(-20, 20), new Color(0.05f, 0.08f, 0.15f, 0.92f)).gameObject;
 
             CreateText("BuildTitle", _buildPanel.transform, "건설 메뉴 (TAB)", 16, Color.white, TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(200, 24), new Vector2(0, -16));
@@ -261,10 +291,16 @@ namespace Defense2D
             for (int i = 0; i < 3; i++)
             {
                 int idx = i;
-                CreateButton($"TowerBtn{i}", _buildPanel.transform, $"{names[i]}\n비용 {GameConstants.TowerCost}",
+                // [해설] 타워마다 비용이 다를 수 있어 GameConstants.CostFor로 각 버튼에 맞는 가격을 표시한다.
+                CreateButton($"TowerBtn{i}", _buildPanel.transform, $"{names[i]}\n비용 {GameConstants.CostFor(types[i])}",
                     new Vector2(190, 46), new Vector2(0, -50 - i * 54), new Vector2(0.5f, 1), new Vector2(0.5f, 1),
                     () => Build.SelectTower(types[idx]), colors[i] * 0.55f + new Color(0, 0, 0, 0.4f));
             }
+
+            // 건설 메뉴 안에서도 현재 보유 골드가 바로 보이도록 표시 (실제 값은 RefreshGold에서 갱신)
+            _buildGoldText = CreateText("BuildGoldText", _buildPanel.transform, "보유 골드 0", 15,
+                new Color(1f, 0.85f, 0.3f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
+                new Vector2(200, 22), new Vector2(0, -214));
 
             _buildPanel.SetActive(false);
         }
@@ -273,7 +309,7 @@ namespace Defense2D
 
         private void BuildHintText()
         {
-            CreateText("Hint", _canvas.transform, "WASD 이동 · 마우스 클릭 배치 · SPACE 스킬 · TAB 건설",
+            CreateText("Hint", _canvas.transform, "마우스 클릭으로 타워 배치 · TAB 건설 메뉴",
                 14, new Color(1, 1, 1, 0.7f), TextAnchor.MiddleCenter, new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 new Vector2(700, 24), new Vector2(0, 8));
         }
@@ -282,8 +318,9 @@ namespace Defense2D
 
         private void BuildPrepPanel()
         {
+            // "지금 시작" 버튼은 우측 상단의 통합 액션 버튼(웨이브 시작/스킵)으로 옮겨서 그만큼 패널을 낮췄다.
             _prepPanel = CreatePanel("PrepPanel", _canvas.transform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                new Vector2(560, 90), new Vector2(0, -90), new Color(0.05f, 0.08f, 0.15f, 0.88f)).gameObject;
+                new Vector2(560, 64), new Vector2(0, -90), new Color(0.05f, 0.08f, 0.15f, 0.88f)).gameObject;
 
             _prepText = CreateText("PrepText", _prepPanel.transform, "다음 웨이브 준비 중...", 18, Color.white, TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(420, 26), new Vector2(-60, -14));
@@ -293,9 +330,6 @@ namespace Defense2D
 
             _bossHintText = CreateText("BossHint", _prepPanel.transform, "", 14, new Color(1f, 0.6f, 0.6f), TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(540, 22), new Vector2(0, -40));
-
-            CreateButton("SkipPrepBtn", _prepPanel.transform, "지금 시작", new Vector2(120, 30), new Vector2(0, -68),
-                new Vector2(0.5f, 1), new Vector2(0.5f, 1), () => Game.SkipPrep());
         }
 
         public void ShowPrepPanel(int nextWave, bool nextIsBoss)
@@ -418,9 +452,9 @@ namespace Defense2D
             _endPanel.SetActive(false);
         }
 
-        public void ShowGameOver(int reachedWave)
+        public void ShowGameOver(int reachedWave, string reason = "거점이 함락되었습니다")
         {
-            _endText.text = $"거점이 함락되었습니다\n도달 웨이브: {reachedWave} / {GameConstants.TotalWaves}";
+            _endText.text = $"{reason}\n도달 웨이브: {reachedWave} / {GameConstants.TotalWaves}";
             _endPanel.SetActive(true);
         }
 
@@ -432,7 +466,11 @@ namespace Defense2D
 
         // ---------- 갱신 ----------
 
-        public void RefreshGold() => _goldText.text = $"골드 {Game.Gold}";
+        public void RefreshGold()
+        {
+            _goldText.text = $"골드 {Game.Gold}";
+            if (_buildGoldText != null) _buildGoldText.text = $"보유 골드 {Game.Gold}";
+        }
 
         public void RefreshBaseHP()
         {

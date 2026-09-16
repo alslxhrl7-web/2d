@@ -12,7 +12,6 @@ namespace Defense2D
     {
         public UIManager UI;
         public WaveManager Waves;
-        public PlayerController Player;
         public BuildManager Build;
 
         public float BaseMaxHP = GameConstants.BaseMaxHP;
@@ -47,6 +46,7 @@ namespace Defense2D
             }
 
             if (Waves != null) UI.RefreshAliveCount(Waves.AliveEnemies);
+            UI.RefreshActionButton();
         }
 
         public void EnterPrep()
@@ -91,8 +91,17 @@ namespace Defense2D
             {
                 BaseHP = 0f;
                 UI.RefreshBaseHP();
-                GameOver();
+                GameOver("거점이 함락되었습니다");
             }
+        }
+
+        /// <summary>동시 생존 적이 허용치를 넘어섰을 때(WaveManager) 즉시 패배 처리.</summary>
+        public void TriggerOverwhelmDefeat()
+        {
+            if (State == GameState.GameOver || State == GameState.Victory) return;
+            BaseHP = 0f;
+            UI.RefreshBaseHP();
+            GameOver("적에게 압도당했습니다");
         }
 
         public void SuppressIncomeBriefly(float seconds)
@@ -106,7 +115,6 @@ namespace Defense2D
         {
             Gold += 15 + waveNumber;
             UI.RefreshGold();
-            Player.RefillActionPointsPartial(1);
 
             if (waveNumber >= GameConstants.TotalWaves)
             {
@@ -129,25 +137,10 @@ namespace Defense2D
         {
             switch (opt.Kind)
             {
-                case UpgradeKind.PlayerDamage:
-                    Player.AttackDamage *= 1.25f;
-                    break;
-                case UpgradeKind.PlayerAttackSpeed:
-                    Player.AttackInterval *= 0.82f;
-                    break;
-                case UpgradeKind.PlayerRange:
-                    Player.AttackRange *= 1.2f;
-                    break;
-                case UpgradeKind.PlayerMoveSpeed:
-                    Player.MoveSpeed *= 1.15f;
-                    break;
                 case UpgradeKind.BaseMaxHp:
                     BaseMaxHP *= 1.15f;
                     BaseHP = Mathf.Min(BaseMaxHP, BaseHP + BaseMaxHP * 0.2f);
                     UI.RefreshBaseHP();
-                    break;
-                case UpgradeKind.SkillCooldown:
-                    Player.ApRegenSeconds *= 0.8f;
                     break;
                 case UpgradeKind.GoldGain:
                     _goldMultiplier *= 1.2f;
@@ -159,19 +152,17 @@ namespace Defense2D
             UI.ShowBanner($"업그레이드 적용: {opt.Label}");
         }
 
-        private void GameOver()
+        private void GameOver(string reason)
         {
             State = GameState.GameOver;
             Waves.StopAllCoroutines();
-            Player.enabled = false;
             if (Build != null) Build.enabled = false;
-            UI.ShowGameOver(Waves.CurrentWave);
+            UI.ShowGameOver(Waves.CurrentWave, reason);
         }
 
         private void Victory()
         {
             State = GameState.Victory;
-            Player.enabled = false;
             if (Build != null) Build.enabled = false;
             UI.ShowVictory();
         }
