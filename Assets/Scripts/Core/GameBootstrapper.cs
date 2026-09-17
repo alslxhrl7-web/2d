@@ -5,8 +5,9 @@ namespace Defense2D
 {
     /// <summary>
     /// 씬을 수동으로 편집하지 않고도 재생(Play) 버튼만 누르면 게임 전체(카메라, 경로,
-    /// 거점, 타워/웨이브/UI 매니저)가 코드로 조립되도록 하는 진입점.
-    /// (플레이어 캐릭터는 제거되었고, 타워 배치만으로 방어한다.)
+    /// 타워/웨이브/UI 매니저)가 코드로 조립되도록 하는 진입점.
+    /// (플레이어 캐릭터는 제거되었고, 타워 배치만으로 방어한다. 거점(기지) 개념도 제거되어
+    /// 길은 도착점 없이 영원히 도는 정사각형 루프다.)
     /// 어떤 씬을 열어도 동작한다 (RuntimeInitializeOnLoadMethod).
     /// [해설] 길(경로) 자체는 이제 고정이 아니라 PathLibrary에서 웨이브별로 다른 도안을 받아온다.
     /// WaveManager가 매 웨이브 시작 시 RedrawPathVisuals()를 호출해서 여기서 그린 도로를 다시 그리므로,
@@ -63,7 +64,7 @@ namespace Defense2D
             waves.OnBossIncoming += ui.ShowBossBanner;
 
             ui.RefreshGold();
-            ui.RefreshBaseHP();
+            ui.RefreshAliveCount(0);
             ui.RefreshWave(0);
         }
 
@@ -99,22 +100,25 @@ namespace Defense2D
 
             var root = new GameObject("PathVisual");
             _pathVisualRoot = root;
+            // [해설] WaypointsA/B는 이제 서로 다른 사각형이 아니라 같은 사각형을 도는 두 출발점이므로
+            // (PathLibrary 참고), 도로 타일은 한 번만 그린다. 대신 스폰 마커는 두 지점 모두 표시해서
+            // 하나로 합쳐진 사각형의 양쪽에서 유닛이 나온다는 것을 눈으로 보여준다.
             DrawPolyline(path.WaypointsA, root.transform, new Color(0.28f, 0.34f, 0.46f));
-            DrawPolyline(path.WaypointsB, root.transform, new Color(0.24f, 0.3f, 0.4f));
 
             SpawnMarker(path.WaypointsA[0], root.transform, new Color(0.3f, 0.85f, 0.5f));
             SpawnMarker(path.WaypointsB[0], root.transform, new Color(0.3f, 0.65f, 0.85f));
-            // 모든 길 도안이 같은 지점에서 끝나도록 만들어 뒀으므로, 길이 바뀌어도 거점 마커는
-            // 항상 같은 자리에 그려진다 (PathLibrary 클래스 주석 참고).
-            BaseMarker(path.WaypointsA[path.WaypointsA.Count - 1], root.transform);
         }
 
         private static void DrawPolyline(List<Vector3> points, Transform parent, Color color)
         {
             var tileSprite = SpriteFactory.Square(color, color * 0.8f);
-            for (int i = 0; i < points.Count - 1; i++)
+            int n = points.Count;
+            // [해설] 거점이 없는 무한 루프 경로이므로, 마지막 점에서 다시 첫 점으로 돌아가는
+            // 구간(i == n-1일 때 다음 점이 points[0])까지 그려서 사각형 모양을 완전히 닫는다.
+            for (int i = 0; i < n; i++)
             {
-                Vector3 a = points[i], b = points[i + 1];
+                Vector3 a = points[i];
+                Vector3 b = points[(i + 1) % n];
                 float dist = Vector3.Distance(a, b);
                 int steps = Mathf.Max(1, Mathf.RoundToInt(dist / 0.5f));
                 for (int s = 0; s <= steps; s++)
@@ -140,17 +144,6 @@ namespace Defense2D
             sr.sprite = SpriteFactory.Ring(color, 96, 5f);
             sr.sortingOrder = -3;
             go.transform.localScale = Vector3.one * 0.9f;
-        }
-
-        private static void BaseMarker(Vector3 pos, Transform parent)
-        {
-            var go = new GameObject("BaseMarker");
-            go.transform.SetParent(parent, false);
-            go.transform.position = pos;
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = SpriteFactory.Circle(new Color(0.3f, 0.8f, 0.9f), Color.white);
-            sr.sortingOrder = -2;
-            go.transform.localScale = Vector3.one * 1.3f;
         }
     }
 }

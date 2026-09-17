@@ -11,7 +11,7 @@ namespace Defense2D
 {
     /// <summary>
     /// HUD 전체를 코드로 생성/관리한다 (아트 리소스 없이 uGUI만 사용).
-    /// 상단 바(거점 HP/웨이브/남은 적/골드), 행동력 표시, 건설 메뉴(TAB),
+    /// 상단 바(생존 한도/웨이브/남은 적/골드), 행동력 표시, 건설 메뉴(TAB),
     /// 준비 단계 패널(다음 보스 힌트 포함), 배너, 보상 선택, 게임 종료 화면.
     /// </summary>
     public class UIManager : MonoBehaviour
@@ -24,7 +24,7 @@ namespace Defense2D
         private Font _font;
         private Image _fillImage;
 
-        private Text _hpText;
+        private Text _crowdText;
         private Text _waveText;
         private Text _enemiesText;
         private Text _goldText;
@@ -61,13 +61,13 @@ namespace Defense2D
             { 1, "패턴: 직선으로 돌진하고, 돌진 직후 잠시 약점이 노출됩니다." },
             { 2, "패턴: 주기적으로 타워 하나를 잠시 무력화합니다. 여러 타워로 분산 대응하세요." },
             { 3, "패턴: 주기적으로 잡몹을 소환합니다. 소환된 잡몹부터 정리하세요." },
-            { 4, "패턴: 거점을 직접 공격하고 골드 수급을 방해합니다. 미리 거점 체력을 확보하세요." },
+            { 4, "패턴: 골드를 약탈하고 수급을 방해합니다. 미리 골드를 소비해 두는 것이 안전합니다." },
             { 5, "패턴: 체력에 따라 3페이즈로 변하며 이전 보스들의 패턴을 섞어 사용합니다." },
         };
 
         private static readonly List<UpgradeOption> AllUpgrades = new List<UpgradeOption>
         {
-            new UpgradeOption{ Kind = UpgradeKind.BaseMaxHp, Label = "거점 보강", Description = "거점 최대 체력 +15% 및 즉시 일부 회복" },
+            new UpgradeOption{ Kind = UpgradeKind.AliveCapacity, Label = "수용력 강화", Description = "동시 생존 허용 한도 +15%" },
             new UpgradeOption{ Kind = UpgradeKind.GoldGain, Label = "재화 감각", Description = "골드 획득량 +20%" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Label = "타워 강화", Description = "모든 타워 공격력 +20%" },
         };
@@ -186,10 +186,10 @@ namespace Defense2D
             var bar = CreatePanel("TopBar", _canvas.transform, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0.5f, 1),
                 new Vector2(0, 74), Vector2.zero, new Color(0.05f, 0.08f, 0.15f, 0.85f));
 
-            var hpBg = CreatePanel("HPBarBG", bar, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1),
+            var hpBg = CreatePanel("CrowdBarBG", bar, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1),
                 new Vector2(260, 22), new Vector2(20, -14), new Color(1, 1, 1, 0.15f));
 
-            var hpFillGO = new GameObject("HPFill");
+            var hpFillGO = new GameObject("CrowdFill");
             hpFillGO.transform.SetParent(hpBg, false);
             var fillRt = hpFillGO.AddComponent<RectTransform>();
             fillRt.anchorMin = new Vector2(0, 0);
@@ -200,10 +200,12 @@ namespace Defense2D
             fillImg.color = new Color(0.3f, 0.85f, 0.4f);
             fillImg.type = Image.Type.Filled;
             fillImg.fillMethod = Image.FillMethod.Horizontal;
-            fillImg.fillAmount = 1f;
+            fillImg.fillAmount = 0f;
             _fillImage = fillImg;
 
-            _hpText = CreateText("HPText", bar, "거점 HP 100/100", 14, Color.white, TextAnchor.MiddleLeft,
+            // [해설] 거점 체력 대신, "동시 생존 허용 한도" 대비 현재 생존 적 수를 보여주는
+            // 위험도 게이지로 재활용한다 (가득 찰수록 게임 오버(적에게 압도당함)에 가까워짐).
+            _crowdText = CreateText("CrowdText", bar, "생존 한도 0/50", 14, Color.white, TextAnchor.MiddleLeft,
                 new Vector2(0, 1), new Vector2(0, 1), new Vector2(240, 20), new Vector2(150, -14));
 
             _waveText = CreateText("WaveText", bar, "WAVE 00 / 25", 22, new Color(0.4f, 0.75f, 1f), TextAnchor.MiddleCenter,
@@ -220,10 +222,17 @@ namespace Defense2D
 
         private void BuildActionButton()
         {
-            _actionButton = CreateButton("ActionBtn", _canvas.transform, "웨이브 시작", new Vector2(150, 34),
-                new Vector2(-20, -90), new Vector2(1, 1), new Vector2(1, 1),
+            // [해설] "남은 적" 숫자(x=-190) 바로 아래에 붙도록 x를 맞췄다. 또한 이전에 버튼을
+            // 줄였을 때(150x34→128x28) Text 기본 Wrap+Truncate 설정 때문에 "웨이브 시작"의
+            // 마지막 글자가 잘려 보이는 문제가 있었다 — 폭을 140으로 살짝 늘리고, 라벨의
+            // overflow 모드를 Overflow로 바꿔 어떤 문구든(스킵까지 30초 등) 절대 잘리지 않게 했다.
+            _actionButton = CreateButton("ActionBtn", _canvas.transform, "웨이브 시작", new Vector2(140, 30),
+                new Vector2(-190, -90), new Vector2(1, 1), new Vector2(1, 1),
                 OnActionButtonClicked, new Color(0.2f, 0.55f, 0.25f, 0.92f));
             _actionLabel = _actionButton.GetComponentInChildren<Text>();
+            _actionLabel.fontSize = 15;
+            _actionLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _actionLabel.verticalOverflow = VerticalWrapMode.Overflow;
             _actionButton.gameObject.SetActive(false);
         }
 
@@ -263,7 +272,7 @@ namespace Defense2D
                 _actionButton.gameObject.SetActive(true);
                 bool canSkip = Waves.CanSkipWave;
                 _actionButton.interactable = canSkip;
-                _actionLabel.text = canSkip ? "웨이브 스킵!" : $"스킵까지 {Mathf.Max(0, Waves.SkipKillThreshold - Waves.KilledThisWave)}마리";
+                _actionLabel.text = canSkip ? "웨이브 스킵!" : $"스킵까지 {Mathf.CeilToInt(Waves.SkipUnlockRemaining)}초";
                 return;
             }
 
@@ -275,32 +284,27 @@ namespace Defense2D
 
         private void BuildBuildMenu()
         {
+            // [해설] 타워 종류를 직접 고르지 않고, 설치 시점에 타입이 무작위로 결정되도록 바뀌면서
+            // 타입별 버튼 3개 대신 "타워 설치" 버튼 하나로 단순화했다.
             _buildPanel = CreatePanel("BuildMenu", _canvas.transform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0),
-                new Vector2(220, 252), new Vector2(-20, 20), new Color(0.05f, 0.08f, 0.15f, 0.92f)).gameObject;
+                new Vector2(220, 210), new Vector2(-20, 20), new Color(0.05f, 0.08f, 0.15f, 0.92f)).gameObject;
 
             CreateText("BuildTitle", _buildPanel.transform, "건설 메뉴 (TAB)", 16, Color.white, TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(200, 24), new Vector2(0, -16));
 
-            string[] names = { "화살탑", "빙결탑", "포격탑" };
-            TowerType[] types = { TowerType.Arrow, TowerType.Ice, TowerType.Cannon };
-            Color[] colors =
-            {
-                new Color(0.24f, 0.4f, 0.78f), new Color(0.35f, 0.85f, 0.92f), new Color(0.95f, 0.58f, 0.28f)
-            };
+            CreateText("BuildInfo", _buildPanel.transform,
+                $"화살탑/빙결탑 {GameConstants.TowerCost} · 포격탑 {GameConstants.CannonTowerCost}\n설치 시 타입이 무작위로 결정됩니다",
+                13, new Color(1, 1, 1, 0.75f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
+                new Vector2(200, 40), new Vector2(0, -56));
 
-            for (int i = 0; i < 3; i++)
-            {
-                int idx = i;
-                // [해설] 타워마다 비용이 다를 수 있어 GameConstants.CostFor로 각 버튼에 맞는 가격을 표시한다.
-                CreateButton($"TowerBtn{i}", _buildPanel.transform, $"{names[i]}\n비용 {GameConstants.CostFor(types[i])}",
-                    new Vector2(190, 46), new Vector2(0, -50 - i * 54), new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                    () => Build.SelectTower(types[idx]), colors[i] * 0.55f + new Color(0, 0, 0, 0.4f));
-            }
+            CreateButton("PlaceBtn", _buildPanel.transform, "타워 설치", new Vector2(190, 46), new Vector2(0, -116),
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), () => Build.BeginPlacement(),
+                new Color(0.3f, 0.4f, 0.6f, 0.9f));
 
             // 건설 메뉴 안에서도 현재 보유 골드가 바로 보이도록 표시 (실제 값은 RefreshGold에서 갱신)
             _buildGoldText = CreateText("BuildGoldText", _buildPanel.transform, "보유 골드 0", 15,
                 new Color(1f, 0.85f, 0.3f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                new Vector2(200, 22), new Vector2(0, -214));
+                new Vector2(200, 22), new Vector2(0, -176));
 
             _buildPanel.SetActive(false);
         }
@@ -452,7 +456,7 @@ namespace Defense2D
             _endPanel.SetActive(false);
         }
 
-        public void ShowGameOver(int reachedWave, string reason = "거점이 함락되었습니다")
+        public void ShowGameOver(int reachedWave, string reason = "게임 오버")
         {
             _endText.text = $"{reason}\n도달 웨이브: {reachedWave} / {GameConstants.TotalWaves}";
             _endPanel.SetActive(true);
@@ -472,14 +476,22 @@ namespace Defense2D
             if (_buildGoldText != null) _buildGoldText.text = $"보유 골드 {Game.Gold}";
         }
 
-        public void RefreshBaseHP()
-        {
-            _hpText.text = $"거점 HP {Mathf.CeilToInt(Game.BaseHP)}/{Mathf.CeilToInt(Game.BaseMaxHP)}";
-            _fillImage.fillAmount = Mathf.Clamp01(Game.BaseHP / Game.BaseMaxHP);
-        }
-
         public void RefreshWave(int wave) => _waveText.text = $"WAVE {wave:00} / {GameConstants.TotalWaves}";
 
-        public void RefreshAliveCount(int count) => _enemiesText.text = $"남은 적 {count}";
+        /// <summary>
+        /// [해설] 거점 체력 대신 "동시 생존 허용 한도" 대비 현재 생존 적 수를 함께 갱신한다.
+        /// 한도에 가까워질수록(=적에게 압도당해 게임 오버되는 조건에 가까워질수록) 게이지가
+        /// 붉게 물든다.
+        /// </summary>
+        public void RefreshAliveCount(int count)
+        {
+            _enemiesText.text = $"남은 적 {count}";
+
+            int cap = Waves != null ? Waves.MaxAliveEnemies : count;
+            _crowdText.text = $"생존 한도 {count}/{cap}";
+            float ratio = cap > 0 ? Mathf.Clamp01((float)count / cap) : 0f;
+            _fillImage.fillAmount = ratio;
+            _fillImage.color = Color.Lerp(new Color(0.3f, 0.85f, 0.4f), new Color(0.9f, 0.25f, 0.2f), ratio);
+        }
     }
 }

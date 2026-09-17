@@ -4,7 +4,10 @@ namespace Defense2D
 {
     /// <summary>
     /// 핵심 플레이 루프 상태머신: 준비(Prep) → 방어(Defense) → 보상(Reward) → (다시 준비).
-    /// 거점 체력/골드, 게임 오버/승리 판정을 총괄한다. (기획서 01 CORE IDEA 핵심 플레이 루프)
+    /// 골드와 게임 오버/승리 판정을 총괄한다. (기획서 01 CORE IDEA 핵심 플레이 루프)
+    /// [해설] 거점(기지) 개념은 제거되었다. 길이 도착점 없는 무한 루프가 되면서 "거점 도달"이라는
+    /// 사건 자체가 없어졌고, 유일한 패배 조건은 동시 생존 적이 한도(WaveManager.MaxAliveEnemies)를
+    /// 넘어서는 것(TriggerOverwhelmDefeat)이다.
     /// </summary>
     public enum GameState { Prep, Defense, Reward, GameOver, Victory }
 
@@ -14,8 +17,6 @@ namespace Defense2D
         public WaveManager Waves;
         public BuildManager Build;
 
-        public float BaseMaxHP = GameConstants.BaseMaxHP;
-        public float BaseHP;
         public int Gold;
         public GameState State = GameState.Prep;
 
@@ -25,7 +26,6 @@ namespace Defense2D
 
         private void Awake()
         {
-            BaseHP = BaseMaxHP;
             Gold = GameConstants.StartingGold;
         }
 
@@ -83,24 +83,19 @@ namespace Defense2D
             UI.RefreshGold();
         }
 
-        public void DamageBase(float amount)
+        /// <summary>보스(4번)가 골드를 직접 약탈할 때 사용. 보유 골드보다 많이 뺏기지 않도록 클램프한다.</summary>
+        public void StealGold(int amount)
         {
-            BaseHP -= amount;
-            UI.RefreshBaseHP();
-            if (BaseHP <= 0f)
-            {
-                BaseHP = 0f;
-                UI.RefreshBaseHP();
-                GameOver("거점이 함락되었습니다");
-            }
+            int stolen = Mathf.Min(Gold, amount);
+            Gold -= stolen;
+            UI.RefreshGold();
         }
 
-        /// <summary>동시 생존 적이 허용치를 넘어섰을 때(WaveManager) 즉시 패배 처리.</summary>
+        /// <summary>동시 생존 적이 허용치를 넘어섰을 때(WaveManager) 즉시 패배 처리.
+        /// 거점이 없는 지금은 이것이 게임의 유일한 패배 조건이다.</summary>
         public void TriggerOverwhelmDefeat()
         {
             if (State == GameState.GameOver || State == GameState.Victory) return;
-            BaseHP = 0f;
-            UI.RefreshBaseHP();
             GameOver("적에게 압도당했습니다");
         }
 
@@ -137,10 +132,8 @@ namespace Defense2D
         {
             switch (opt.Kind)
             {
-                case UpgradeKind.BaseMaxHp:
-                    BaseMaxHP *= 1.15f;
-                    BaseHP = Mathf.Min(BaseMaxHP, BaseHP + BaseMaxHP * 0.2f);
-                    UI.RefreshBaseHP();
+                case UpgradeKind.AliveCapacity:
+                    Waves.IncreaseAliveCapacity(1.15f);
                     break;
                 case UpgradeKind.GoldGain:
                     _goldMultiplier *= 1.2f;

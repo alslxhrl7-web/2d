@@ -9,7 +9,7 @@ namespace Defense2D
     /// 1(5R): 직선 돌진 + 돌진 직후 약점 노출
     /// 2(10R): 주기적으로 타워 하나를 무력화 (맵 일부 봉쇄/타워 재배치 대응)
     /// 3(15R): 주기적으로 잡몹 소환
-    /// 4(20R): 거점 직접 피해 + 골드 수급 방해 (거점 HP 압박/회복 제한)
+    /// 4(20R): 골드 약탈 + 골드 수급 방해 (경제 압박 — 거점이 없는 대신 자원을 직접 노린다)
     /// 5(25R): 체력 구간별 3페이즈, 이전 보스 패턴을 혼합
     /// </summary>
     public class BossController : EnemyController
@@ -83,9 +83,9 @@ namespace Defense2D
                     _gameManager?.ShowBanner("보스가 잡몹을 소환했습니다!");
                     break;
                 case 4:
-                    _gameManager?.DamageBase(6);
-                    _gameManager?.SuppressIncomeBriefly(4f);
-                    _gameManager?.ShowBanner("거점이 직접 공격받았습니다! (골드 수급 일시 정지)");
+                    _gameManager?.StealGold(25);
+                    _gameManager?.SuppressIncomeBriefly(5f);
+                    _gameManager?.ShowBanner("보스가 골드를 약탈했습니다! (골드 수급 일시 정지)");
                     break;
                 case 5:
                     _waveManager?.SpawnBossAdds(1);

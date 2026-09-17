@@ -6,7 +6,7 @@ namespace Defense2D
     /// </summary>
     public enum UpgradeKind
     {
-        BaseMaxHp,
+        AliveCapacity,
         GoldGain,
         TowerDamage,
     }

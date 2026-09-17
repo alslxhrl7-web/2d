@@ -5,9 +5,11 @@ using UnityEngine;
 namespace Defense2D
 {
     /// <summary>
-    /// 적 공통 로직: 경로를 따라 이동, 체력/피격, 거점 도달, 사망 보상.
+    /// 적 공통 로직: 경로(무한 루프)를 따라 이동, 체력/피격, 사망 보상.
     /// 잡몹(원)/돌진형(삼각)/방패병(사각)은 실루엣과 스탯만 다르다.
     /// 방패병은 "타워 공격을 버팀" 설정에 따라 타워 피해만 경감받는다.
+    /// [해설] 거점(기지) 개념이 제거되면서 경로는 도착점 없이 영원히 순회하는 폐곡선이 되었다.
+    /// 적은 오직 타워에게 처치될 때만 사라진다.
     /// </summary>
     public class EnemyController : MonoBehaviour
     {
@@ -18,7 +20,6 @@ namespace Defense2D
         public float HP;
         public float Speed;
         public int GoldReward;
-        public int DamageToBase = 1;
         public float ShieldTowerDamageReduction = 0f;
 
         [NonSerialized] public List<Vector3> Waypoints;
@@ -33,15 +34,20 @@ namespace Defense2D
         private float _slowFactor = 1f;
         private float _stunTimer;
 
+        private float _totalDistanceTraveled;
+
         public bool IsDead { get; private set; }
 
         public event Action<EnemyController> OnDied;
-        public event Action<EnemyController> OnReachedBase;
 
-        public float PathProgress =>
-            (Waypoints != null && Waypoints.Count > 1) ? _waypointIndex / (float)(Waypoints.Count - 1) : 0f;
+        /// <summary>타워가 "가장 위협적인(=오래 살아남아 계속 루프를 도는)" 적을 우선 타겟팅하는 데 쓰는 값.
+        /// 거점 없는 무한 루프 경로에서는 "얼마나 남았는가"가 의미 없으므로, 대신 지금까지 누적으로
+        /// 이동한 거리를 반환한다(죽을 때까지 계속 커지며 절대 리셋되지 않는다). 오래 살아남은 적일수록
+        /// 값이 커지므로, TowerBase.FindTarget()이 여전히 "값이 가장 큰 적"을 조준하기만 하면
+        /// 자연스럽게 가장 오래 살아남은(=처리 못하고 방치된) 적부터 우선 처리된다.</summary>
+        public float PathProgress => _totalDistanceTraveled;
 
-        public void Init(EnemyType type, float maxHp, float speed, int goldReward, int damageToBase,
+        public void Init(EnemyType type, float maxHp, float speed, int goldReward,
             List<Vector3> waypoints, Color fill, Color outline)
         {
             Type = type;
@@ -49,7 +55,6 @@ namespace Defense2D
             HP = maxHp;
             Speed = speed;
             GoldReward = goldReward;
-            DamageToBase = damageToBase;
             Waypoints = waypoints;
             transform.position = waypoints[0];
 
@@ -162,33 +167,24 @@ namespace Defense2D
                 if (_slowTimer <= 0f) _slowFactor = 1f;
             }
 
-            if (_waypointIndex >= Waypoints.Count - 1)
-            {
-                ReachBase();
-                return;
-            }
-
-            Vector3 target = Waypoints[_waypointIndex + 1];
+            // [해설] 거점이 사라지고 경로가 "무한 순회" 루프가 되면서, 마지막 웨이포인트에 닿아도
+            // 멈추지 않고 다음 인덱스를 (인덱스+1) % Count로 계산해 첫 지점으로 돌아간다.
+            // 그래서 적은 처치되기 전까지 폐곡선을 영원히 맴돈다.
+            int nextIndex = (_waypointIndex + 1) % Waypoints.Count;
+            Vector3 target = Waypoints[nextIndex];
             Vector3 dir = target - transform.position;
             float dist = dir.magnitude;
             float step = Speed * _slowFactor * Time.deltaTime;
+            _totalDistanceTraveled += Mathf.Min(step, dist);
             if (step >= dist)
             {
                 transform.position = target;
-                _waypointIndex++;
+                _waypointIndex = nextIndex;
             }
             else
             {
                 transform.position += dir.normalized * step;
             }
-        }
-
-        protected void ReachBase()
-        {
-            if (IsDead) return;
-            IsDead = true;
-            OnReachedBase?.Invoke(this);
-            Destroy(gameObject);
         }
     }
 }
