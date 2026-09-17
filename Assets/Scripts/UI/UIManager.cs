@@ -11,8 +11,9 @@ namespace Defense2D
 {
     /// <summary>
     /// HUD 전체를 코드로 생성/관리한다 (아트 리소스 없이 uGUI만 사용).
-    /// 상단 바(생존 한도/웨이브/남은 적/골드), 행동력 표시, 건설 메뉴(TAB),
+    /// 상단 바(생존 한도/웨이브/남은 적), 건설 메뉴(TAB, 보유 골드 표시 포함),
     /// 준비 단계 패널(다음 보스 힌트 포함), 배너, 보상 선택, 게임 종료 화면.
+    /// [해설] 상단 바의 골드 표기는 제거되었다(보유 골드는 건설 메뉴 안에서 확인).
     /// </summary>
     public class UIManager : MonoBehaviour
     {
@@ -27,7 +28,6 @@ namespace Defense2D
         private Text _crowdText;
         private Text _waveText;
         private Text _enemiesText;
-        private Text _goldText;
 
         // 준비 단계의 "웨이브 시작" 버튼과 방어 단계의 "웨이브 스킵" 버튼을 하나로 통합한
         // 단일 액션 버튼. 항상 같은 자리에 있고, 현재 상태에 맞는 동작/문구로 바뀐다.
@@ -208,14 +208,15 @@ namespace Defense2D
             _crowdText = CreateText("CrowdText", bar, "생존 한도 0/50", 14, Color.white, TextAnchor.MiddleLeft,
                 new Vector2(0, 1), new Vector2(0, 1), new Vector2(240, 20), new Vector2(150, -14));
 
-            _waveText = CreateText("WaveText", bar, "WAVE 00 / 25", 22, new Color(0.4f, 0.75f, 1f), TextAnchor.MiddleCenter,
+            _waveText = CreateText("WaveText", bar, "STAGE 1 · WAVE 00", 22, new Color(0.4f, 0.75f, 1f), TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(260, 30), new Vector2(0, -20));
 
             _enemiesText = CreateText("EnemiesText", bar, "남은 적 0", 16, Color.white, TextAnchor.MiddleRight,
                 new Vector2(1, 1), new Vector2(1, 1), new Vector2(160, 24), new Vector2(-190, -16));
 
-            _goldText = CreateText("GoldText", bar, "골드 0", 18, new Color(1f, 0.85f, 0.3f), TextAnchor.MiddleRight,
-                new Vector2(1, 1), new Vector2(1, 1), new Vector2(160, 24), new Vector2(-20, -16));
+            // [해설] "위에 골드표기창은 지우고" 요청에 따라 상단 바의 골드 표시(GoldText)를
+            // 제거했다. 건설 메뉴(TAB) 안의 "보유 골드" 표시(_buildGoldText)는 그대로 남아있어
+            // 타워를 설치하려 할 때는 여전히 골드를 확인할 수 있다.
         }
 
         // ---------- 웨이브 시작/스킵 통합 버튼 ----------
@@ -285,26 +286,33 @@ namespace Defense2D
         private void BuildBuildMenu()
         {
             // [해설] 타워 종류를 직접 고르지 않고, 설치 시점에 타입이 무작위로 결정되도록 바뀌면서
-            // 타입별 버튼 3개 대신 "타워 설치" 버튼 하나로 단순화했다.
+            // 타입별 버튼 3개 대신 "타워 설치" 버튼 하나로 단순화했다. 이후 "타워 철거" 버튼이
+            // 하나 더 추가되면서 패널 높이를 210 → 268로 늘렸다.
             _buildPanel = CreatePanel("BuildMenu", _canvas.transform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0),
-                new Vector2(220, 210), new Vector2(-20, 20), new Color(0.05f, 0.08f, 0.15f, 0.92f)).gameObject;
+                new Vector2(220, 268), new Vector2(-20, 20), new Color(0.05f, 0.08f, 0.15f, 0.92f)).gameObject;
 
             CreateText("BuildTitle", _buildPanel.transform, "건설 메뉴 (TAB)", 16, Color.white, TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(200, 24), new Vector2(0, -16));
 
             CreateText("BuildInfo", _buildPanel.transform,
-                $"화살탑/빙결탑 {GameConstants.TowerCost} · 포격탑 {GameConstants.CannonTowerCost}\n설치 시 타입이 무작위로 결정됩니다",
-                13, new Color(1, 1, 1, 0.75f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                new Vector2(200, 40), new Vector2(0, -56));
+                $"화살탑/빙결탑 {GameConstants.TowerCost} · 포격탑 {GameConstants.CannonTowerCost}\n설치 시 타입이 무작위로 결정됩니다\n철거하면 건설비의 {GameConstants.TowerRefundPercent}%를 돌려받습니다",
+                12, new Color(1, 1, 1, 0.75f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
+                new Vector2(204, 54), new Vector2(0, -62));
 
-            CreateButton("PlaceBtn", _buildPanel.transform, "타워 설치", new Vector2(190, 46), new Vector2(0, -116),
+            CreateButton("PlaceBtn", _buildPanel.transform, "타워 설치", new Vector2(190, 44), new Vector2(0, -122),
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), () => Build.BeginPlacement(),
                 new Color(0.3f, 0.4f, 0.6f, 0.9f));
+
+            // [해설] 철거는 되돌리기 어려운 동작이므로, 설치 버튼(푸른 계열)과 확실히 구분되도록
+            // 붉은 계열 색을 줬다.
+            CreateButton("RemoveBtn", _buildPanel.transform, "타워 철거", new Vector2(190, 44), new Vector2(0, -172),
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), () => Build.BeginRemoval(),
+                new Color(0.52f, 0.24f, 0.26f, 0.92f));
 
             // 건설 메뉴 안에서도 현재 보유 골드가 바로 보이도록 표시 (실제 값은 RefreshGold에서 갱신)
             _buildGoldText = CreateText("BuildGoldText", _buildPanel.transform, "보유 골드 0", 15,
                 new Color(1f, 0.85f, 0.3f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                new Vector2(200, 22), new Vector2(0, -176));
+                new Vector2(200, 22), new Vector2(0, -222));
 
             _buildPanel.SetActive(false);
         }
@@ -313,7 +321,7 @@ namespace Defense2D
 
         private void BuildHintText()
         {
-            CreateText("Hint", _canvas.transform, "마우스 클릭으로 타워 배치 · TAB 건설 메뉴",
+            CreateText("Hint", _canvas.transform, "TAB 건설 메뉴 · 클릭으로 타워 배치/철거 · 우클릭·ESC 취소",
                 14, new Color(1, 1, 1, 0.7f), TextAnchor.MiddleCenter, new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 new Vector2(700, 24), new Vector2(0, 8));
         }
@@ -336,12 +344,22 @@ namespace Defense2D
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(540, 22), new Vector2(0, -40));
         }
 
-        public void ShowPrepPanel(int nextWave, bool nextIsBoss)
+        /// <summary>
+        /// [해설] 스테이지 구조 개편에 따라 "다음 웨이브"를 스테이지 번호 + 스테이지 내 로컬 웨이브로
+        /// 함께 표시한다. 피날레(스테이지 마지막 웨이브)는 보스+유닛 대량 스폰 및 제한시간 패배
+        /// 조건이 있는 특별한 웨이브이므로, 중간 보스 웨이브와 문구를 다르게 보여준다.
+        /// </summary>
+        public void ShowPrepPanel(int stageNumber, int localWave, bool nextIsBoss, bool nextIsFinale, int bossPatternIndex)
         {
             _prepPanel.SetActive(true);
-            _prepText.text = nextIsBoss ? $"WAVE {nextWave} - 보스 웨이브 준비!" : $"WAVE {nextWave} 준비 중...";
-            int bossIdx = nextWave / GameConstants.BossWaveInterval;
-            _bossHintText.text = (nextIsBoss && BossHints.ContainsKey(bossIdx)) ? BossHints[bossIdx] : "";
+            if (nextIsFinale)
+                _prepText.text = $"STAGE {stageNumber} - 피날레! 보스 + 대규모 유닛 (제한시간 {Mathf.RoundToInt(GameConstants.StageFinaleBossTimeLimit)}초)";
+            else if (nextIsBoss)
+                _prepText.text = $"STAGE {stageNumber} · WAVE {localWave} - 보스 웨이브 준비!";
+            else
+                _prepText.text = $"STAGE {stageNumber} · WAVE {localWave} 준비 중...";
+
+            _bossHintText.text = (nextIsBoss && BossHints.ContainsKey(bossPatternIndex)) ? BossHints[bossPatternIndex] : "";
         }
 
         public void SetPrepCountdown(float t)
@@ -456,15 +474,15 @@ namespace Defense2D
             _endPanel.SetActive(false);
         }
 
-        public void ShowGameOver(int reachedWave, string reason = "게임 오버")
+        public void ShowGameOver(int stageNumber, int localWave, string reason = "게임 오버")
         {
-            _endText.text = $"{reason}\n도달 웨이브: {reachedWave} / {GameConstants.TotalWaves}";
+            _endText.text = $"{reason}\n도달 지점: STAGE {stageNumber} · WAVE {localWave} / {GameConstants.WavesPerStage}";
             _endPanel.SetActive(true);
         }
 
         public void ShowVictory()
         {
-            _endText.text = "25 웨이브 클리어!\n모든 보스를 물리쳤습니다.";
+            _endText.text = $"STAGE {GameConstants.TotalStages} 클리어!\n모든 보스를 물리치고 게임을 완료했습니다.";
             _endPanel.SetActive(true);
         }
 
@@ -472,11 +490,11 @@ namespace Defense2D
 
         public void RefreshGold()
         {
-            _goldText.text = $"골드 {Game.Gold}";
             if (_buildGoldText != null) _buildGoldText.text = $"보유 골드 {Game.Gold}";
         }
 
-        public void RefreshWave(int wave) => _waveText.text = $"WAVE {wave:00} / {GameConstants.TotalWaves}";
+        public void RefreshWave(int stageNumber, int localWave) =>
+            _waveText.text = $"STAGE {stageNumber} · WAVE {localWave:00} / {GameConstants.WavesPerStage}";
 
         /// <summary>
         /// [해설] 거점 체력 대신 "동시 생존 허용 한도" 대비 현재 생존 적 수를 함께 갱신한다.

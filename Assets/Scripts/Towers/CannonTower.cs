@@ -30,7 +30,10 @@ namespace Defense2D
             var p = go.AddComponent<Projectile>();
             // splashRadius 자리에 CannonSplashRadius(0보다 큼)를 넘기면, Projectile.Hit()에서
             // 착탄 지점 기준 그 반경 안의 모든 적을 찾아 각각 Damage만큼 피해를 준다.
-            p.Init(target, 6f, Damage, DamageSource.Tower, new Color(1f, 0.55f, 0.25f), CannonSplashRadius);
+            // cannonballVisual: true → 주황색 원 대신 검은 포탄 모양으로 날아간다.
+            // impactEffect: Explosion → 맞는 순간 폭발 이펙트가 터진다.
+            p.Init(target, 6f, Damage, DamageSource.Tower, Color.black, CannonSplashRadius,
+                impactEffect: ImpactEffectKind.Explosion, cannonballVisual: true);
         }
     }
 }

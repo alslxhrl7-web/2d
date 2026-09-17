@@ -23,6 +23,8 @@ namespace Defense2D
         private float _incomeSuppressTimer;
         private float _goldMultiplier = 1f;
         private float _prepTimer;
+        /// <summary>아직 1골드가 되지 못하고 쌓여 있는 처치 보상의 소수점 부분 (AddGold 참고).</summary>
+        private float _goldFraction;
 
         private void Awake()
         {
@@ -52,10 +54,16 @@ namespace Defense2D
         public void EnterPrep()
         {
             State = GameState.Prep;
-            _prepTimer = GameConstants.PrepPhaseSeconds;
-            int nextWave = Waves.CurrentWave + 1;
-            bool nextIsBoss = nextWave % GameConstants.BossWaveInterval == 0;
-            UI.ShowPrepPanel(nextWave, nextIsBoss);
+            // [해설] 직전 웨이브를 스킵으로 끝냈다면 준비 시간을 1초로 줄인다 — 빨리 넘어가려고
+            // 스킵한 사람을 다시 8초 기다리게 만들지 않기 위한 것이다.
+            _prepTimer = Waves.LastWaveSkipped
+                ? GameConstants.PrepPhaseSecondsAfterSkip
+                : GameConstants.PrepPhaseSeconds;
+            // [해설] 스테이지 구조 개편에 따라, "다음 웨이브"를 더 이상 단순 정수 하나로 다루지 않고
+            // WaveManager의 Next*() 헬퍼로 스테이지 번호/로컬 웨이브/보스 여부/피날레 여부/보스 패턴을
+            // 함께 내다본다.
+            UI.ShowPrepPanel(Waves.NextStageNumber(), Waves.NextLocalWave(),
+                Waves.NextIsBoss(), Waves.NextIsStageFinale(), Waves.NextBossPatternIndex());
         }
 
         public void SkipPrep()
@@ -70,16 +78,36 @@ namespace Defense2D
             Waves.BeginNextWave();
         }
 
-        public void AddGold(int amount)
+        /// <summary>
+        /// 적 처치 보상을 더한다. [해설] 보상이 1골드보다 작을 수 있으므로(잡몹 0.22 등) 소수점을
+        /// 버리지 않고 _goldFraction에 모아뒀다가, 1을 넘길 때마다 그만큼만 실제 골드로 지급한다.
+        /// 이렇게 해야 "50마리 × 최소 1골드"라는 바닥에 걸리지 않고 경제를 원하는 만큼 조일 수 있다.
+        /// </summary>
+        public void AddGold(float amount)
         {
             if (_incomeSuppressTimer > 0f) return;
-            Gold += Mathf.RoundToInt(amount * _goldMultiplier);
+
+            _goldFraction += amount * _goldMultiplier;
+            int whole = Mathf.FloorToInt(_goldFraction);
+            if (whole <= 0) return;
+
+            _goldFraction -= whole;
+            Gold += whole;
             UI.RefreshGold();
         }
 
         public void SpendGold(int amount)
         {
             Gold -= amount;
+            UI.RefreshGold();
+        }
+
+        /// <summary>타워 철거 시 건설비 일부를 돌려준다. 적 처치 보상(AddGold)과 달리 골드 획득량
+        /// 업그레이드 배율이나 보스의 수급 방해(_incomeSuppressTimer)의 영향을 받지 않는다 —
+        /// 이미 낸 돈을 되돌려주는 것이지 새로 버는 수입이 아니기 때문이다.</summary>
+        public void RefundGold(int amount)
+        {
+            Gold += amount;
             UI.RefreshGold();
         }
 
@@ -99,6 +127,15 @@ namespace Defense2D
             GameOver("적에게 압도당했습니다");
         }
 
+        /// <summary>스테이지 피날레(로컬 웨이브 25) 보스를 제한시간(GameConstants.StageFinaleBossTimeLimit)
+        /// 안에 처치하지 못했을 때 WaveManager.Update()가 호출하는 즉시 패배 처리.
+        /// "25웨이브 보스 못잡으면 게임오버" 요청을 그대로 구현한다.</summary>
+        public void TriggerBossTimeoutDefeat()
+        {
+            if (State == GameState.GameOver || State == GameState.Victory) return;
+            GameOver("제한시간 안에 보스를 처치하지 못했습니다");
+        }
+
         public void SuppressIncomeBriefly(float seconds)
         {
             _incomeSuppressTimer = Mathf.Max(_incomeSuppressTimer, seconds);
@@ -108,14 +145,27 @@ namespace Defense2D
 
         public void OnWaveClearedHandler(int waveNumber)
         {
-            Gold += 15 + waveNumber;
+            // [해설] 웨이브 클리어 보너스도 (15 + 웨이브) → (2 + 웨이브/2)로 낮췄다. 처치 보상만
+            // 줄이고 이 보너스를 그대로 두면 9웨이브까지 180골드(타워 5.4개)가 여기서만 들어와서
+            // 목표치(10웨이브에 타워 6개)를 혼자 다 채워버린다.
+            Gold += 2 + waveNumber / 2;
             UI.RefreshGold();
 
-            if (waveNumber >= GameConstants.TotalWaves)
+            // [해설] 스테이지 구조 개편: "몇 번째 전체 웨이브인가"가 아니라 "방금 끝난 웨이브가
+            // 어떤 스테이지의 몇 번째 로컬 웨이브였는가"로 클리어/승리를 판정해야 한다. Waves는
+            // 이미 다음 웨이브를 위한 상태로 넘어가지 않은 시점이므로(BeginNextWave가 다음 EnterPrep
+            // 이후에야 호출됨) LocalWave/StageIndex는 여전히 "방금 끝난 웨이브"를 가리킨다.
+            bool wasStageFinale = Waves.LocalWave == GameConstants.WavesPerStage;
+            bool wasLastStage = Waves.StageIndex >= GameConstants.TotalStages - 1;
+
+            if (wasStageFinale && wasLastStage)
             {
                 Victory();
                 return;
             }
+
+            if (wasStageFinale)
+                UI.ShowBanner($"STAGE {Waves.StageNumber} 클리어! 다음 스테이지로 이동합니다.");
 
             State = GameState.Reward;
             UI.ShowRewardPanel(OnRewardChosen);
@@ -150,7 +200,7 @@ namespace Defense2D
             State = GameState.GameOver;
             Waves.StopAllCoroutines();
             if (Build != null) Build.enabled = false;
-            UI.ShowGameOver(Waves.CurrentWave, reason);
+            UI.ShowGameOver(Waves.StageNumber, Waves.LocalWave, reason);
         }
 
         private void Victory()

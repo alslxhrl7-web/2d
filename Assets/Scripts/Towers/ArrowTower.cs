@@ -33,8 +33,9 @@ namespace Defense2D
             var p = go.AddComponent<Projectile>();
             // splashRadius는 0f로 그대로 둬서(단일 대상 유지) 화살탑은 여전히 한 명만 노리되,
             // 그 한 명에게 약한 슬로우(ArrowSlowFactor/ArrowSlowDuration)를 함께 건다.
+            // arrowVisual: true → 원 대신 실제 화살 모양이 대상을 향해 회전하며 날아간다.
             p.Init(target, 9f, Damage, DamageSource.Tower, new Color(0.35f, 0.75f, 1f),
-                0f, ArrowSlowFactor, ArrowSlowDuration);
+                0f, ArrowSlowFactor, ArrowSlowDuration, arrowVisual: true);
         }
     }
 }

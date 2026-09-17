@@ -19,7 +19,11 @@ namespace Defense2D
         public float MaxHP;
         public float HP;
         public float Speed;
-        public int GoldReward;
+        /// <summary>[해설] 처치 보상은 이제 1골드보다 작을 수 있어서 float이다. 한 웨이브에 적이
+        /// 50마리씩 나오는데 정수로만 주면 "최소 1골드 × 450마리 = 450골드"라는 바닥에 걸려서
+        /// 경제를 원하는 만큼 조일 수가 없었다. 소수점 보상은 GameManager.AddGold가 모아뒀다가
+        /// 1을 넘길 때마다 실제 골드로 바꿔준다.</summary>
+        public float GoldReward;
         public float ShieldTowerDamageReduction = 0f;
 
         [NonSerialized] public List<Vector3> Waypoints;
@@ -47,7 +51,7 @@ namespace Defense2D
         /// 자연스럽게 가장 오래 살아남은(=처리 못하고 방치된) 적부터 우선 처리된다.</summary>
         public float PathProgress => _totalDistanceTraveled;
 
-        public void Init(EnemyType type, float maxHp, float speed, int goldReward,
+        public void Init(EnemyType type, float maxHp, float speed, float goldReward,
             List<Vector3> waypoints, Color fill, Color outline)
         {
             Type = type;

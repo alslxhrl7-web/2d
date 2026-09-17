@@ -22,10 +22,19 @@ namespace Defense2D
         public bool MenuOpen { get; private set; }
 
         private bool _placing;
+        private bool _removing;
         private readonly List<GameObject> _towers = new List<GameObject>();
         private GameObject _ghost;
         private SpriteRenderer _ghostSr;
         private GameObject _rangeGhost;
+
+        // 철거 모드에서 현재 마우스가 가리키고 있는 타워와, 붉게 칠하기 전의 원래 색.
+        private SpriteRenderer _hoverSr;
+        private Color _hoverOriginalColor;
+
+        /// <summary>철거할 타워를 고를 때, 클릭 지점에서 이 거리(월드 유닛) 안에 있는 가장 가까운
+        /// 타워를 집는다. 타워에 콜라이더가 없으므로 거리 판정으로 대신한다.</summary>
+        private const float RemovePickRadius = 0.75f;
 
         private TowerType _ghostPreviewType;
         private float _ghostCycleTimer;
@@ -45,12 +54,21 @@ namespace Defense2D
 
             if (kb.escapeKey.wasPressedThisFrame) CancelSelection();
 
+            var mouse = Mouse.current;
+
             if (_placing)
             {
                 UpdateGhost();
-                var mouse = Mouse.current;
                 if (mouse != null && mouse.leftButton.wasPressedThisFrame && !IsPointerOverUI())
                     TryPlace();
+                if (mouse != null && mouse.rightButton.wasPressedThisFrame)
+                    CancelSelection();
+            }
+            else if (_removing)
+            {
+                UpdateRemoveHover();
+                if (mouse != null && mouse.leftButton.wasPressedThisFrame && !IsPointerOverUI())
+                    TryRemove();
                 if (mouse != null && mouse.rightButton.wasPressedThisFrame)
                     CancelSelection();
             }
@@ -63,21 +81,44 @@ namespace Defense2D
         /// 실제로 클릭해 설치하는 순간 고스트가 보여주던 타입으로 정해진다.</summary>
         public void BeginPlacement()
         {
+            CancelSelection(); // 철거 모드와 동시에 켜지지 않도록 먼저 정리
             _placing = true;
             EnsureGhost();
+        }
+
+        /// <summary>건설 메뉴의 "타워 철거" 버튼에서 호출한다. 철거 모드에 들어가면 마우스를 올린
+        /// 타워가 붉게 강조되고 그 타워의 실제 사거리가 함께 보이며, 클릭하면 철거되면서 건설비의
+        /// 일부(GameConstants.TowerRefundPercent)를 돌려받는다. 우클릭이나 ESC로 취소한다.</summary>
+        public void BeginRemoval()
+        {
+            CancelSelection(); // 배치 모드와 동시에 켜지지 않도록 먼저 정리
+            _removing = true;
+            Game.ShowBanner("철거할 타워를 클릭하세요 (우클릭·ESC 취소)");
         }
 
         private void CancelSelection()
         {
             _placing = false;
+            _removing = false;
+            ClearRemoveHover();
+            DestroyGhostObjects();
+        }
+
+        /// <summary>[해설] Unity의 Destroy()는 프레임 끝에야 실제로 파괴하기 때문에, 호출 직후에도
+        /// 참조는 한동안 null이 아니다. 아래 EnsureRangeGhost()처럼 "이미 있으면 재사용"하는
+        /// 코드가 파괴 예정인 오브젝트를 붙잡는 일이 없도록, 파괴와 동시에 참조를 비워준다.</summary>
+        private void DestroyGhostObjects()
+        {
             if (_ghost != null) Destroy(_ghost);
             if (_rangeGhost != null) Destroy(_rangeGhost);
+            _ghost = null;
+            _ghostSr = null;
+            _rangeGhost = null;
         }
 
         private void EnsureGhost()
         {
-            if (_ghost != null) Destroy(_ghost);
-            if (_rangeGhost != null) Destroy(_rangeGhost);
+            DestroyGhostObjects();
 
             _ghostPreviewType = RandomTowerType();
             _ghostCycleTimer = GhostCycleInterval;
@@ -87,6 +128,19 @@ namespace Defense2D
             _ghostSr.sortingOrder = 20;
             ApplyTowerVisual(_ghostSr, _ghost.transform, _ghostPreviewType); // 실제 배치될 타워와 동일한 아트/크기로 미리보기
 
+            EnsureRangeGhost();
+            _rangeGhost.GetComponent<SpriteRenderer>().color = Color.white;
+        }
+
+        /// <summary>사거리 표시용 링을 (없으면) 만든다. 배치 미리보기와 철거 대상 표시가 같은
+        /// 오브젝트를 돌려쓴다 — 두 모드는 동시에 켜지지 않기 때문이다.</summary>
+        private void EnsureRangeGhost()
+        {
+            if (_rangeGhost != null)
+            {
+                _rangeGhost.SetActive(true);
+                return;
+            }
             _rangeGhost = new GameObject("RangeGhost");
             var rsr = _rangeGhost.AddComponent<SpriteRenderer>();
             rsr.sprite = SpriteFactory.Ring(new Color(1, 1, 1, 0.35f));
@@ -133,7 +187,7 @@ namespace Defense2D
         {
             TowerType.Arrow => 3.2f,
             TowerType.Ice => 2.6f,
-            TowerType.Cannon => 2.9f,
+            TowerType.Cannon => 3.3f, // CannonTower.Setup()의 실제 Range와 일치시킴(2.9 → 3.3)
             _ => 2.5f
         };
 
@@ -173,6 +227,76 @@ namespace Defense2D
             _ghostPreviewType = RandomTowerType();
             _ghostCycleTimer = GhostCycleInterval;
             ApplyTowerVisual(_ghostSr, _ghost.transform, _ghostPreviewType);
+        }
+
+        // ---------- 타워 철거 ----------
+
+        /// <summary>클릭 지점에서 RemovePickRadius 안에 있는 가장 가까운 타워를 돌려준다(없으면 null).</summary>
+        private GameObject FindTowerAt(Vector3 pos)
+        {
+            GameObject best = null;
+            float bestDist = RemovePickRadius;
+            foreach (var t in _towers)
+            {
+                if (t == null) continue;
+                float d = Vector2.Distance(t.transform.position, pos);
+                if (d >= bestDist) continue;
+                bestDist = d;
+                best = t;
+            }
+            return best;
+        }
+
+        /// <summary>철거 모드에서 마우스가 가리키는 타워를 붉게 강조하고 사거리를 보여준다.</summary>
+        private void UpdateRemoveHover()
+        {
+            GameObject hit = IsPointerOverUI() ? null : FindTowerAt(MouseWorld());
+            var sr = hit != null ? hit.GetComponent<SpriteRenderer>() : null;
+            if (sr == _hoverSr) return; // 가리키는 대상이 그대로면 아무것도 하지 않는다
+
+            ClearRemoveHover();
+            if (hit == null || sr == null) return;
+
+            _hoverSr = sr;
+            _hoverOriginalColor = sr.color;
+            sr.color = new Color(1f, 0.45f, 0.45f, 1f);
+
+            EnsureRangeGhost();
+            var tb = hit.GetComponent<TowerBase>();
+            float range = tb != null ? tb.Range : 2.6f;
+            _rangeGhost.transform.position = hit.transform.position;
+            _rangeGhost.transform.localScale = Vector3.one * (range * 2f / 3f); // Ring 스프라이트 지름 3유닛 기준 보정
+            _rangeGhost.GetComponent<SpriteRenderer>().color = new Color(1f, 0.5f, 0.5f, 1f);
+        }
+
+        /// <summary>강조해 둔 타워의 색을 원래대로 돌려놓고 사거리 링을 숨긴다.</summary>
+        private void ClearRemoveHover()
+        {
+            if (_hoverSr != null) _hoverSr.color = _hoverOriginalColor;
+            _hoverSr = null;
+            if (_rangeGhost != null && !_placing) _rangeGhost.SetActive(false);
+        }
+
+        private void TryRemove()
+        {
+            var target = FindTowerAt(MouseWorld());
+            if (target == null)
+            {
+                Game.ShowBanner("철거할 타워를 클릭하세요");
+                return;
+            }
+
+            var tb = target.GetComponent<TowerBase>();
+            TowerType type = tb != null ? tb.Type : TowerType.Arrow;
+            int refund = GameConstants.RefundFor(type);
+
+            ClearRemoveHover(); // 곧 파괴될 타워를 가리키고 있던 상태를 먼저 정리한다
+            _towers.Remove(target);
+            Destroy(target); // TowerBase.OnDisable이 Active 목록에서도 자동으로 빠진다
+
+            Game.RefundGold(refund);
+            Game.ShowBanner($"{TowerLabel(type)} 철거 — 골드 {refund} 반환");
+            // 연달아 여러 개를 철거할 수 있도록 철거 모드는 그대로 유지한다.
         }
 
         private static string TowerLabel(TowerType t) => t switch

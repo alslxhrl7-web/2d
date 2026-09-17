@@ -34,8 +34,9 @@ namespace Defense2D
             var p = go.AddComponent<Projectile>();
             // splashRadius 자리에 IceRadius(0보다 큼)를 넘겨서, 착탄 지점 반경 안의 모든 적에게
             // 피해와 슬로우가 함께 적용되는 "범위 슬로우"로 동작한다.
+            // impactEffect: FrostZone → 착탄 지점에 애니비아 장판처럼 서리 장판이 깔린다.
             p.Init(target, 7f, Damage, DamageSource.Tower, new Color(0.6f, 0.95f, 1f),
-                IceRadius, IceSlowFactor, IceSlowDuration);
+                IceRadius, IceSlowFactor, IceSlowDuration, impactEffect: ImpactEffectKind.FrostZone);
         }
     }
 }

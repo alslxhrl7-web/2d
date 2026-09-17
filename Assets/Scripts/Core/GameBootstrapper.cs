@@ -24,9 +24,17 @@ namespace Defense2D
         {
             SetupCamera();
 
-            // 1웨이브용 길 도안으로 시작한다. 이후 웨이브부터는 WaveManager.BeginNextWave()가
-            // PathLibrary에서 새 도안을 받아 이 PathData의 WaypointsA/B 필드를 직접 갈아끼운다.
-            var initial = PathLibrary.GetForWave(1);
+            // [해설] 스테이지 배경(숲 → 오염된 숲 → 보스전). 웨이브가 시작될 때마다
+            // StageBackground가 로컬 웨이브 번호를 보고 배경을 교차 페이드로 바꾼다.
+            // 배경 아트(Resources/Sprites/BG_*.png)가 없으면 스스로 비활성화되므로,
+            // 아트가 아직 없는 상태에서도 안전하게 동작한다(카메라 단색 배경 유지).
+            var backgroundGO = new GameObject("StageBackground");
+            var background = backgroundGO.AddComponent<StageBackground>();
+
+            // 1스테이지용 길 도안으로 시작한다. 스테이지가 바뀔 때마다 WaveManager.BeginNextWave()가
+            // PathLibrary에서 그 스테이지의 고정 도안을 받아 이 PathData의 WaypointsA/B 필드를
+            // 직접 갈아끼운다(스테이지 안에서는 길이 고정, PathLibrary.cs 참고).
+            var initial = PathLibrary.GetForStage(0);
             var path = new PathData { WaypointsA = initial.WaypointsA, WaypointsB = initial.WaypointsB };
             DrawPathVisuals(path);
 
@@ -59,13 +67,14 @@ namespace Defense2D
             ui.Waves = waves;
             ui.Build = build;
 
-            waves.OnWaveStarted += ui.RefreshWave;
+            waves.OnWaveStarted += ui.RefreshWave; // [해설] Action<int,int> (스테이지 번호, 스테이지 내 로컬 웨이브)
+            waves.OnWaveStarted += background.OnWaveStarted; // 같은 신호로 배경도 함께 갈아끼운다
             waves.OnWaveCleared += game.OnWaveClearedHandler;
             waves.OnBossIncoming += ui.ShowBossBanner;
 
             ui.RefreshGold();
             ui.RefreshAliveCount(0);
-            ui.RefreshWave(0);
+            ui.RefreshWave(1, 0);
         }
 
         private static void SetupCamera()
@@ -105,8 +114,10 @@ namespace Defense2D
             // 하나로 합쳐진 사각형의 양쪽에서 유닛이 나온다는 것을 눈으로 보여준다.
             DrawPolyline(path.WaypointsA, root.transform, new Color(0.28f, 0.34f, 0.46f));
 
-            SpawnMarker(path.WaypointsA[0], root.transform, new Color(0.3f, 0.85f, 0.5f));
-            SpawnMarker(path.WaypointsB[0], root.transform, new Color(0.3f, 0.65f, 0.85f));
+            // [해설] 스폰 지점에 별도 도형(화살표/링)을 얹는 대신, 그 지점 근처 도로 자체를
+            // 진입로 색으로 물들여서 표시한다 — "동그라미 대신 길에다가 색만 넣어서" 요청에 따른 것.
+            SpawnMarker(path.WaypointsA[0], path.WaypointsA[1], root.transform, new Color(0.3f, 0.85f, 0.5f));
+            SpawnMarker(path.WaypointsB[0], path.WaypointsB[1], root.transform, new Color(0.3f, 0.65f, 0.85f));
         }
 
         private static void DrawPolyline(List<Vector3> points, Transform parent, Color color)
@@ -135,15 +146,40 @@ namespace Defense2D
             }
         }
 
-        private static void SpawnMarker(Vector3 pos, Transform parent, Color color)
+        /// <summary>
+        /// [해설] 이전에는 진입로 방향으로 길게 이어지는 단색 타일 여러 칸(무늬 없이 한 줄)을
+        /// 깔았는데, "조금 더 복잡하게 만들고 표시되는 칸은 줄여달라"는 요청에 따라 다시 다듬었다.
+        /// 칸 수는 4칸(2폭 x 2깊이)으로 줄이는 대신, 진입로 색과 그보다 밝은 색을 체크무늬로
+        /// 교차시켜서 단순한 단색 구간보다 조금 더 정교한 "출입구" 패턴으로 보이게 했다.
+        /// 여전히 별도 아이콘이 아니라 도로와 같은 타일 모양(SpriteFactory.Square)만 쓰고, 도로
+        /// 타일(-5) 바로 위(-4)에 얹어서 "길 자체가 칠해진" 느낌을 유지한다.
+        /// </summary>
+        private static void SpawnMarker(Vector3 pos, Vector3 nextPos, Transform parent, Color color)
         {
-            var go = new GameObject("SpawnMarker");
-            go.transform.SetParent(parent, false);
-            go.transform.position = pos;
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = SpriteFactory.Ring(color, 96, 5f);
-            sr.sortingOrder = -3;
-            go.transform.localScale = Vector3.one * 0.9f;
+            Vector3 dir = nextPos - pos;
+            float segLen = dir.magnitude;
+            if (segLen < 0.0001f) return;
+            dir /= segLen;
+            Vector3 perp = new Vector3(-dir.y, dir.x, 0f); // dir과 수직인 좌우 방향(폭)
+
+            const float tileScale = 0.58f; // 기본 도로 타일(0.62)과 비슷한 크기
+            float pitch = tileScale * 2f;  // Square 텍스처(64px, PPU 32) 기준 한 칸의 실제 폭 = scale*2, 겹치지 않게 딱 맞춘 간격
+
+            var tileLight = SpriteFactory.Square(Color.Lerp(color, Color.white, 0.4f), color * 0.85f);
+            var tileDark = SpriteFactory.Square(color, color * 0.85f);
+
+            for (int row = 0; row < 2; row++)      // 진입 방향으로 2칸 깊이
+            for (int col = 0; col < 2; col++)      // 진입로 폭으로 2칸
+            {
+                Vector3 p = pos + dir * (row * pitch) + perp * ((col - 0.5f) * pitch);
+                var go = new GameObject("SpawnRoadTint");
+                go.transform.SetParent(parent, false);
+                go.transform.position = p;
+                go.transform.localScale = Vector3.one * tileScale;
+                var sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = ((row + col) % 2 == 0) ? tileDark : tileLight; // 체크무늬로 교차
+                sr.sortingOrder = -4;
+            }
         }
     }
 }
