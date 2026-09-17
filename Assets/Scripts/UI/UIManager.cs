@@ -467,11 +467,33 @@ namespace Defense2D
             _endText = CreateText("EndText", _endPanel.transform, "", 30, Color.white, TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(800, 140), new Vector2(0, 30));
 
-            CreateButton("RestartBtn", _endPanel.transform, "다시 시작", new Vector2(160, 40), new Vector2(0, -60),
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                () => SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex));
+            CreateButton("RestartBtn", _endPanel.transform, "다시 시작", new Vector2(160, 40), new Vector2(-90, -60),
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), RestartGame);
+
+            // [해설] 독립 실행 파일(빌드)로 돌릴 때는 에디터의 정지 버튼이 없어서, 이 버튼이 없으면
+            // Alt+F4 말고는 게임을 끝낼 방법이 없다. 에디터에서는 Application.Quit()이 아무 일도
+            // 하지 않으므로(정상 동작) 버튼을 눌러도 무해하다.
+            CreateButton("QuitBtn", _endPanel.transform, "게임 종료", new Vector2(160, 40), new Vector2(90, -60),
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Application.Quit,
+                new Color(0.28f, 0.2f, 0.22f, 0.92f));
 
             _endPanel.SetActive(false);
+        }
+
+        /// <summary>
+        /// "다시 시작" — 현재 씬을 통째로 다시 불러와 완전히 새 게임으로 시작한다.
+        /// [해설] 씬을 다시 여는 것만으로는 부족하다. 게임 조립 코드(GameBootstrapper)는 원래
+        /// 게임 시작 시 한 번만 도는 구조였고 static 값(예: 타워 공격력 배율)은 씬을 넘어 살아남기
+        /// 때문에, GameBootstrapper 쪽에서 sceneLoaded를 받아 다시 조립 + static 초기화를 하도록
+        /// 함께 고쳤다. 자세한 내용은 GameBootstrapper.Bootstrap()의 주석 참고.
+        /// </summary>
+        private static void RestartGame()
+        {
+            var scene = SceneManager.GetActiveScene();
+            // buildIndex는 씬이 Build Settings에 등록돼 있지 않으면 -1이고, LoadScene(-1)은 실패한다.
+            // 지금은 등록돼 있지만, 나중에 씬이 바뀌어도 죽지 않도록 이름으로 한 번 더 시도한다.
+            if (scene.buildIndex >= 0) SceneManager.LoadScene(scene.buildIndex);
+            else SceneManager.LoadScene(scene.name);
         }
 
         public void ShowGameOver(int stageNumber, int localWave, string reason = "게임 오버")

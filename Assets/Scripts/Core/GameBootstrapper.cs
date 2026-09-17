@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Defense2D
 {
@@ -9,8 +10,8 @@ namespace Defense2D
     /// (플레이어 캐릭터는 제거되었고, 타워 배치만으로 방어한다. 거점(기지) 개념도 제거되어
     /// 길은 도착점 없이 영원히 도는 정사각형 루프다.)
     /// 어떤 씬을 열어도 동작한다 (RuntimeInitializeOnLoadMethod).
-    /// [해설] 길(경로) 자체는 이제 고정이 아니라 PathLibrary에서 웨이브별로 다른 도안을 받아온다.
-    /// WaveManager가 매 웨이브 시작 시 RedrawPathVisuals()를 호출해서 여기서 그린 도로를 다시 그리므로,
+    /// [해설] 길(경로) 자체는 이제 고정이 아니라 PathLibrary에서 스테이지별로 다른 도안을 받아온다.
+    /// WaveManager가 스테이지가 바뀔 때 RedrawPathVisuals()를 호출해서 여기서 그린 도로를 다시 그리므로,
     /// 이 클래스는 "최초 1회" 길을 그리는 역할과 "다시 그리는 방법"을 함께 들고 있다.
     /// </summary>
     public static class GameBootstrapper
@@ -19,9 +20,56 @@ namespace Defense2D
         // 마지막으로 그린 길 표시용 루트 오브젝트를 기억해 둔다 (정적 클래스라 필드로 유지).
         private static GameObject _pathVisualRoot;
 
+        // sceneLoaded 구독을 딱 한 번만 걸기 위한 표시 (아래 Bootstrap 설명 참고).
+        private static bool _sceneHookInstalled;
+
+        /// <summary>
+        /// [해설] ★ "다시 시작"이 동작하려면 이 구조가 필요하다.
+        /// RuntimeInitializeOnLoadMethod는 이름과 달리 <b>게임이 시작될 때 딱 한 번만</b> 불린다 —
+        /// 씬을 다시 불러와도(SceneManager.LoadScene) 다시 불리지 않는다. 그래서 예전에는
+        /// "다시 시작"을 누르면 씬만 새로 열리고 이 조립 코드가 돌지 않아, 카메라도 UI도 없는
+        /// 빈 화면이 나왔다.
+        /// 이를 고치려고 최초 1회 sceneLoaded 이벤트에 구독해 두고, 이후 씬이 다시 로드될 때마다
+        /// BuildGame()이 다시 돌게 했다. 구독 자체는 static이라 씬을 넘나들어도 살아남으므로
+        /// _sceneHookInstalled로 중복 구독을 막는다.
+        /// </summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
         {
+            if (!_sceneHookInstalled)
+            {
+                _sceneHookInstalled = true;
+                SceneManager.sceneLoaded += OnSceneLoaded;
+            }
+            BuildGame();
+        }
+
+        /// <summary>씬이 다시 로드될 때마다(=다시 시작) 게임을 처음부터 새로 조립한다.
+        /// Additive 로드는 이 게임에서 쓰지 않으므로 Single일 때만 반응한다.</summary>
+        private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            if (mode == LoadSceneMode.Single) BuildGame();
+        }
+
+        /// <summary>
+        /// [해설] 씬을 다시 불러와도 <b>static 값은 살아남는다</b>. 초기화하지 않으면 지난 판에서
+        /// 모아둔 "타워 강화" 배율이 새 판 1웨이브부터 그대로 적용되는 등, 새 게임이 새 게임이
+        /// 아니게 된다. 그래서 매번 조립 직전에 살아남는 값들을 공장 초기화한다.
+        /// (Active 목록들은 이전 씬 오브젝트가 파괴되면서 OnDisable로 이미 비워지지만,
+        ///  순서에 기대지 않도록 명시적으로 한 번 더 비운다.)
+        /// </summary>
+        private static void ResetStaticState()
+        {
+            TowerBase.GlobalDamageMultiplier = 1f;
+            TowerBase.Active.Clear();
+            EnemyController.Active.Clear();
+            _pathVisualRoot = null; // 이전 씬과 함께 이미 파괴된 참조
+        }
+
+        private static void BuildGame()
+        {
+            ResetStaticState();
+
             SetupCamera();
 
             // [해설] 스테이지 배경(숲 → 오염된 숲 → 보스전). 웨이브가 시작될 때마다
