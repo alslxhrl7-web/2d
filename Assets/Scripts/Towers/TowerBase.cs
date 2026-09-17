@@ -10,12 +10,21 @@ namespace Defense2D
     /// </summary>
     public abstract class TowerBase : MonoBehaviour
     {
+        /// <summary>모든 타워에 공통으로 곱해지는 공격력 배율. 웨이브 보상 "타워 강화"를 고를
+        /// 때마다 ×1.2로 누적된다(GameManager.ApplyUpgrade). 실제로 곱해지는 곳은
+        /// Projectile.Hit()이며, 타워가 쏜 피해에만 적용된다.
+        /// static이라 이미 세워둔 타워까지 전부 소급 적용된다.</summary>
         public static float GlobalDamageMultiplier = 1f;
         public static readonly List<TowerBase> Active = new List<TowerBase>();
 
         public TowerType Type;
-        public float Range = 2.6f;
-        public float FireInterval = 1f;
+        public float Range = 2.6f;       // 공격 사거리(월드 유닛)
+        public float FireInterval = 1f;  // 발사 간격(초)
+
+        /// <summary>이 타워가 한 발에 주는 기본 피해량. 각 타워의 Setup()에서 정한다
+        /// (화살탑 9 / 빙결탑 3 / 포격탑 26). 이 값이 단일 대상에게 들어갈지 범위 안 전원에게
+        /// 들어갈지는 각 타워의 Fire()가 Projectile에 넘기는 splashRadius가 결정한다 —
+        /// 타입별 피해 방식 전체 설명은 Projectile.Hit() 주석 참고.</summary>
         public float Damage = 10f;
 
         private float _cooldown;

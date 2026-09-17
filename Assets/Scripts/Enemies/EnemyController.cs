@@ -132,9 +132,16 @@ namespace Defense2D
             _stunTimer = Mathf.Max(_stunTimer, duration);
         }
 
+        /// <summary>
+        /// 피해를 받는다. [해설] 타워 피해 계산의 마지막 단계다 — 앞 단계는 Projectile.Hit()에
+        /// 정리해 뒀다(타워별 기본 피해 → 전역 공격력 배율 → 여기서 방패병 경감).
+        /// 여기서 깎이는 건 <b>타워가 준 피해뿐</b>이다: 방패병의 설정이 "타워 공격을 버팀"이라
+        /// 보스 능력 등 타워가 아닌 피해원(DamageSource.Tower가 아닌 경우)에는 경감이 걸리지 않는다.
+        /// </summary>
         public virtual void TakeDamage(float amount, DamageSource source)
         {
             if (IsDead) return;
+            // 방패병(ShieldTowerDamageReduction = 0.5)이면 타워 피해만 절반으로 줄인다.
             if (source == DamageSource.Tower && ShieldTowerDamageReduction > 0f)
                 amount *= (1f - ShieldTowerDamageReduction);
 

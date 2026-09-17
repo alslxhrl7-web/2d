@@ -12,6 +12,8 @@ namespace Defense2D
     {
         // [해설] Range: 공격 사거리(유닛), FireInterval: 한 발 쏘고 다음 발까지 걸리는 시간(초),
         // Damage: 한 발당 피해량. 화살탑은 세 타워 중 가장 빨리 쏘는 대신 한 방 피해는 가장 낮다.
+        // 이 Damage가 실제로 적의 체력에서 깎이기까지 거치는 과정(전역 공격력 배율, 방패병 경감,
+        // 단일 대상 vs 범위 판정)은 Projectile.Hit()의 주석에 세 타워를 묶어서 정리해 뒀다.
         public void Setup()
         {
             Type = TowerType.Arrow;
