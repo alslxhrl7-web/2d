@@ -71,7 +71,7 @@ namespace Defense2D
         private static readonly List<UpgradeOption> AllUpgrades = new List<UpgradeOption>
         {
             new UpgradeOption{ Kind = UpgradeKind.AliveCapacity, Label = "수용력 강화", Description = "동시 생존 허용 한도 +15%" },
-            new UpgradeOption{ Kind = UpgradeKind.GoldGain, Label = "재화 감각", Description = "골드 획득량 +20%" },
+            new UpgradeOption{ Kind = UpgradeKind.GoldGain, Label = "재화 감각", Description = "골드 획득량 +10%" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Label = "타워 강화", Description = "모든 타워 공격력 +20%" },
         };
 

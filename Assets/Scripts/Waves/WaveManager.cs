@@ -49,6 +49,14 @@ namespace Defense2D
         // 이 한도를 늘릴 수 있다(IncreaseAliveCapacity 참고). 스테이지 피날레는 별도로
         // 제한시간 패배 조건도 함께 가진다(아래 Update 참고).
         private const int WaveEnemyCount = 50;
+
+        /// <summary>일반 적 1마리 처치 보상(골드). 0.5 = "2마리 잡을 때마다 1골드".
+        /// 종류(몹/돌진/방패)와 웨이브에 상관없이 고정이다 — 위 SpawnEnemy의 해설 참고.</summary>
+        private const float KillGoldReward = 0.5f;
+
+        /// <summary>적 체력 스케일링이 시작되는 (전역) 웨이브 번호. 이 웨이브 전까지는 배율 1.0으로
+        /// 고정이고, 이 웨이브부터 웨이브당 +8%씩 누적된다 — SpawnEnemy의 hpScale 계산 참고.</summary>
+        private const int HpScaleStartWave = 5;
         private int _maxAliveCapacity = GameConstants.StartingMaxAliveEnemies;
 
         // 스폰 간격(초). 예전보다 더 촘촘하게 몰아쳐서 나오도록 축소했다.
@@ -258,7 +266,15 @@ namespace Defense2D
 
             // 웨이브가 지날수록 적이 전반적으로 강해지도록 체력/이동속도/보상을
             // 모두 (전역) 웨이브 번호에 비례해서 키운다. (1웨이브 기준 배율 1.0)
-            float hpScale = 1f + (CurrentWave - 1) * 0.08f;
+
+            // [해설] 체력 증가는 HpScaleStartWave(5)웨이브부터 시작한다. 예전에는 1웨이브부터
+            // 곧바로 올라서(2웨이브에 벌써 +8%) 타워 한두 개로 버티는 도입부가 사실상 없었다.
+            // 이제 1~4웨이브는 배율 1.0으로 고정이고, 5웨이브부터 웨이브당 +8%씩 붙는다.
+            //   1~4웨 1.00 / 5웨 1.08 / 10웨 1.48 / 25웨 2.68 / 75웨 6.68
+            // Mathf.Max(0, ...)가 4웨이브 이하에서 음수가 곱해지는(=체력이 줄어드는) 것을 막는다.
+            // 속도/보스 보상 스케일링은 손대지 않았다 — 체력만 늦게 오르게 하는 변경이다.
+            int hpScaleWaves = Mathf.Max(0, CurrentWave - HpScaleStartWave + 1);
+            float hpScale = 1f + hpScaleWaves * 0.08f;
             float speedScale = 1f + Mathf.Min(0.6f, (CurrentWave - 1) * 0.02f);
             // [해설] 골드 증가 폭도 0.03 → 0.02로 완만하게 낮췄다(아래 경제 너프의 일부).
             float goldScale = 1f + (CurrentWave - 1) * 0.02f;
@@ -283,24 +299,30 @@ namespace Defense2D
                 ec = go.AddComponent<EnemyController>();
                 switch (type)
                 {
-                    // [해설] 처치 보상 대폭 하향 (몹 2 → 0.22, 돌진 3 → 0.32, 방패 4.5 → 0.5).
-                    // 이전 수치로는 10웨이브에 도달할 즈음 타워를 38개나 지을 수 있어서 배치 고민이
-                    // 사실상 사라졌다. "10웨이브 보스를 만날 때 타워 6개 정도"가 되도록 역산한 값이다
-                    // (계산 근거: 웨이브당 50마리 × 9웨이브 = 450마리 처치 + 웨이브 클리어 보너스).
-                    // 1골드 미만이라 EnemyController.GoldReward가 float이고, GameManager.AddGold가
-                    // 소수점을 모아뒀다가 1이 넘을 때 지급한다.
+                    // [해설] 처치 보상 규칙을 "몬스터 2마리 = 1골드"로 단순화했다. 예전에는 종류마다
+                    // 달랐고(몹 0.22 / 돌진 0.32 / 방패 0.5) 거기에 웨이브 배율(goldScale)까지 곱해서
+                    // 플레이어가 수입을 가늠하기 어려웠다. 이제는 종류·웨이브와 무관하게 전부 0.5로
+                    // 고정이라, 정확히 2마리를 잡을 때마다 1골드가 들어온다.
+                    //
+                    // ★ goldScale(웨이브당 +2%)을 일부러 곱하지 않는다. 곱하면 50웨이브쯤엔 1마리당
+                    //   0.99골드가 되어 "2마리 = 1골드" 규칙이 사실상 "1마리 = 1골드"로 깨지기 때문이다.
+                    //   웨이브 스케일링은 보스 보상(bossGold) 쪽에만 그대로 남아 있다.
+                    // ★ 0.5는 1골드 미만이므로 EnemyController.GoldReward가 float이고,
+                    //   GameManager.AddGold가 _goldFraction에 모아뒀다가 1이 넘을 때 지급한다.
+                    //   (그래서 홀수 번째 처치분도 버려지지 않고 다음 처치 때 합산된다.)
+                    // ★ 체력/속도 스케일링(hpScale/speedScale)은 그대로라 난이도는 계속 오른다.
                     case EnemyType.Mob:
                         // [해설] 기본 체력을 27로 맞춰서, 1웨이브 기준(hpScale=1) 화살탑(공격력 9)에
                         // 정확히 3번 맞으면 죽도록(9×3=27) 1차 밸런스 기준점을 잡았다.
-                        ec.Init(type, 27f * hpScale, 1.5f * speedScale, 0.22f * goldScale,
+                        ec.Init(type, 27f * hpScale, 1.5f * speedScale, KillGoldReward,
                             wp, new Color(0.85f, 0.3f, 0.3f), Color.white);
                         break;
                     case EnemyType.Charger:
-                        ec.Init(type, 22f * hpScale, 2.6f * speedScale, 0.32f * goldScale,
+                        ec.Init(type, 22f * hpScale, 2.6f * speedScale, KillGoldReward,
                             wp, new Color(0.95f, 0.55f, 0.2f), Color.white);
                         break;
                     case EnemyType.Shield:
-                        ec.Init(type, 55f * hpScale, 0.9f * speedScale, 0.5f * goldScale,
+                        ec.Init(type, 55f * hpScale, 0.9f * speedScale, KillGoldReward,
                             wp, new Color(0.55f, 0.35f, 0.85f), Color.white);
                         break;
                 }

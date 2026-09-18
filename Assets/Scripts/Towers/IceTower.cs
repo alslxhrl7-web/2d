@@ -19,7 +19,7 @@ namespace Defense2D
             Type = TowerType.Ice;
             Range = 2.6f;
             FireInterval = 1.1f;
-            Damage = 3f;
+            Damage = 4.5f; // 밸런스 조정 (3 → 4.5)
         }
 
         // [해설] 착탄 지점 기준 범위 슬로우의 반경/세기/지속시간.

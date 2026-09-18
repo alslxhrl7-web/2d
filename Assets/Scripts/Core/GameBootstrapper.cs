@@ -199,39 +199,28 @@ namespace Defense2D
         }
 
         /// <summary>
-        /// [해설] 이전에는 진입로 방향으로 길게 이어지는 단색 타일 여러 칸(무늬 없이 한 줄)을
-        /// 깔았는데, "조금 더 복잡하게 만들고 표시되는 칸은 줄여달라"는 요청에 따라 다시 다듬었다.
-        /// 칸 수는 4칸(2폭 x 2깊이)으로 줄이는 대신, 진입로 색과 그보다 밝은 색을 체크무늬로
-        /// 교차시켜서 단순한 단색 구간보다 조금 더 정교한 "출입구" 패턴으로 보이게 했다.
-        /// 여전히 별도 아이콘이 아니라 도로와 같은 타일 모양(SpriteFactory.Square)만 쓰고, 도로
-        /// 타일(-5) 바로 위(-4)에 얹어서 "길 자체가 칠해진" 느낌을 유지한다.
+        /// [해설] 적이 나오는 진입로 표시. 예전에는 2폭 x 2깊이 = 4칸짜리 체크무늬 구간이었는데,
+        /// "몹 나오는 길을 한 칸으로만" 요청에 따라 출발 꼭짓점 위의 도로 <b>한 칸</b>만 진입로
+        /// 색으로 칠한다. 칸 크기를 도로 타일(DrawPolyline의 0.62)과 똑같이 맞췄기 때문에, 위에
+        /// 새 도형을 얹은 것이 아니라 "길의 그 칸 하나가 물든" 것처럼 보인다.
+        ///
+        /// nextPos는 더 이상 위치 계산에 쓰이지 않지만, 두 점이 겹쳐서 진입 방향이 없는 잘못된
+        /// 구간을 걸러내는 용도로 남겨 둔다 (호출부 시그니처도 그대로 유지된다).
+        /// 도로 타일(-5) 바로 위(-4)에 얹어서 항상 길보다 앞에 보이게 한다.
         /// </summary>
         private static void SpawnMarker(Vector3 pos, Vector3 nextPos, Transform parent, Color color)
         {
-            Vector3 dir = nextPos - pos;
-            float segLen = dir.magnitude;
-            if (segLen < 0.0001f) return;
-            dir /= segLen;
-            Vector3 perp = new Vector3(-dir.y, dir.x, 0f); // dir과 수직인 좌우 방향(폭)
+            if ((nextPos - pos).sqrMagnitude < 0.0001f) return;
 
-            const float tileScale = 0.58f; // 기본 도로 타일(0.62)과 비슷한 크기
-            float pitch = tileScale * 2f;  // Square 텍스처(64px, PPU 32) 기준 한 칸의 실제 폭 = scale*2, 겹치지 않게 딱 맞춘 간격
+            const float tileScale = 0.62f; // 도로 타일과 동일 = 정확히 한 칸
 
-            var tileLight = SpriteFactory.Square(Color.Lerp(color, Color.white, 0.4f), color * 0.85f);
-            var tileDark = SpriteFactory.Square(color, color * 0.85f);
-
-            for (int row = 0; row < 2; row++)      // 진입 방향으로 2칸 깊이
-            for (int col = 0; col < 2; col++)      // 진입로 폭으로 2칸
-            {
-                Vector3 p = pos + dir * (row * pitch) + perp * ((col - 0.5f) * pitch);
-                var go = new GameObject("SpawnRoadTint");
-                go.transform.SetParent(parent, false);
-                go.transform.position = p;
-                go.transform.localScale = Vector3.one * tileScale;
-                var sr = go.AddComponent<SpriteRenderer>();
-                sr.sprite = ((row + col) % 2 == 0) ? tileDark : tileLight; // 체크무늬로 교차
-                sr.sortingOrder = -4;
-            }
+            var go = new GameObject("SpawnRoadTint");
+            go.transform.SetParent(parent, false);
+            go.transform.position = pos;
+            go.transform.localScale = Vector3.one * tileScale;
+            var sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = SpriteFactory.Square(color, color * 0.85f);
+            sr.sortingOrder = -4;
         }
     }
 }

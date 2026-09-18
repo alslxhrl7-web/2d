@@ -141,13 +141,20 @@ namespace Defense2D
         }
 
         /// <summary>
-        /// 적 처치 보상을 더한다. [해설] 보상이 1골드보다 작을 수 있으므로(잡몹 0.22 등) 소수점을
-        /// 버리지 않고 _goldFraction에 모아뒀다가, 1을 넘길 때마다 그만큼만 실제 골드로 지급한다.
-        /// 이렇게 해야 "50마리 × 최소 1골드"라는 바닥에 걸리지 않고 경제를 원하는 만큼 조일 수 있다.
+        /// 골드 수입을 더한다(적 처치 보상 + 웨이브 클리어 보너스). [해설] 보상이 1골드보다 작을 수
+        /// 있으므로(잡몹 0.22 등) 소수점을 버리지 않고 _goldFraction에 모아뒀다가, 1을 넘길 때마다
+        /// 그만큼만 실제 골드로 지급한다. 이렇게 해야 "50마리 × 최소 1골드"라는 바닥에 걸리지 않고
+        /// 경제를 원하는 만큼 조일 수 있다. "재화 감각" 업그레이드 배율(_goldMultiplier)도 여기서 곱한다.
         /// </summary>
-        public void AddGold(float amount)
+        /// <param name="ignoreSuppression">
+        /// [해설] 보스 4번은 SuppressIncomeBriefly(5초)로 수입을 잠시 끊는데, 그 기능은 "적을 잡아도
+        /// 돈이 안 들어온다"는 압박을 주려는 것이지 웨이브 클리어 보너스까지 통째로 날리려는 게 아니다.
+        /// 보스가 죽기 직전에 이 기술을 쓰면 5초 안에 웨이브가 끝나면서 보너스 전액이 조용히 증발하는데,
+        /// 플레이어 입장에서는 원인을 알 수 없는 손해다. 그래서 웨이브 보너스만 true로 넘겨 예외 처리한다.
+        /// </param>
+        public void AddGold(float amount, bool ignoreSuppression = false)
         {
-            if (_incomeSuppressTimer > 0f) return;
+            if (!ignoreSuppression && _incomeSuppressTimer > 0f) return;
 
             _goldFraction += amount * _goldMultiplier;
             int whole = Mathf.FloorToInt(_goldFraction);
@@ -207,11 +214,19 @@ namespace Defense2D
 
         public void OnWaveClearedHandler(int waveNumber)
         {
-            // [해설] 웨이브 클리어 보너스도 (15 + 웨이브) → (2 + 웨이브/2)로 낮췄다. 처치 보상만
-            // 줄이고 이 보너스를 그대로 두면 9웨이브까지 180골드(타워 5.4개)가 여기서만 들어와서
-            // 목표치(10웨이브에 타워 6개)를 혼자 다 채워버린다.
-            Gold += 2 + waveNumber / 2;
-            UI.RefreshGold();
+            // [해설] 웨이브 클리어 보너스. 한때 (15 + 웨이브)로 너무 후했던 것을 (2 + 웨이브/2)까지
+            // 깎았는데, 이번에는 그게 조금 빡빡하다는 판단에 따라 (3 + 웨이브*2/3)으로 소폭 올렸다.
+            // 웨이브 10에서 7 → 9, 25에서 14 → 19, 75에서 39 → 53골드가 된다(보너스 기준 약 +38%).
+            // 전체 수입에서 이 보너스가 차지하는 비중은 1/4 정도라, 총 수입으로는 약 +10%다.
+            // waveNumber는 스테이지마다 리셋되는 표시용 번호가 아니라 게임 전체를 통틀어 누적되는
+            // 전역 웨이브 번호(CurrentWave, 1..75)이므로, 스테이지가 넘어가도 보너스는 계속 커진다.
+            //
+            // [해설] 예전에는 Gold에 직접 더해서 "재화 감각" 업그레이드가 이 보너스에는 안 붙었는데,
+            // 안내 문구가 "골드 획득량 +10%"인 이상 플레이어는 당연히 웨이브 보상에도 붙는다고 읽는다.
+            // 그래서 AddGold()를 경유하도록 바꿨다 — 이제 _goldMultiplier가 여기에도 곱해지고,
+            // 배율 때문에 생기는 소수점도 _goldFraction에 쌓였다가 나중에 온전히 지급된다.
+            // (UI 갱신도 AddGold 안에서 처리하므로 여기서 RefreshGold를 또 부르지 않는다.)
+            AddGold(3 + waveNumber * 2 / 3, ignoreSuppression: true);
 
             // [해설] 스테이지 구조 개편: "몇 번째 전체 웨이브인가"가 아니라 "방금 끝난 웨이브가
             // 어떤 스테이지의 몇 번째 로컬 웨이브였는가"로 클리어/승리를 판정해야 한다. Waves는
@@ -248,7 +263,10 @@ namespace Defense2D
                     Waves.IncreaseAliveCapacity(1.15f);
                     break;
                 case UpgradeKind.GoldGain:
-                    _goldMultiplier *= 1.2f;
+                    // [해설] 이 배율이 이제 처치 보상뿐 아니라 웨이브 클리어 보너스에도 적용되므로
+                    // (OnWaveClearedHandler 참고), 실질 효과가 커진 만큼 +20% → +10%로 낮춘다.
+                    // 안내 문구는 UIManager.AllUpgrades의 "골드 획득량 +10%"와 짝을 맞춰야 한다.
+                    _goldMultiplier *= 1.1f;
                     break;
                 case UpgradeKind.TowerDamage:
                     TowerBase.GlobalDamageMultiplier *= 1.2f;
