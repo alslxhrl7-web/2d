@@ -72,9 +72,12 @@ namespace Defense2D
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Label = "타워 강화", Description = "모든 타워 공격력 +20%" },
         };
 
+        /// <summary>프로젝트에 내장한 한글 폰트의 Resources 경로(확장자 제외).</summary>
+        private const string KoreanFontResourcePath = "Fonts/NanumGothic-Subset";
+
         private void Awake()
         {
-            _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            _font = LoadUiFont();
             BuildCanvas();
             BuildTopBar();
             BuildActionButton();
@@ -88,6 +91,29 @@ namespace Defense2D
         }
 
         // ---------- 뼈대 ----------
+
+        /// <summary>
+        /// HUD 전체가 사용할 폰트를 고른다.
+        /// [해설] ★ 한글이 안 보이던 원인이 여기였다. 예전에는 유니티 내장 폰트
+        /// <c>LegacyRuntime.ttf</c>(Liberation Sans)를 썼는데, 이 폰트에는 <b>한글 글리프가
+        /// 아예 없다</b>. 에디터에서는 운영체제 폰트로 대충 대체되어 보이던 것이, 빌드한
+        /// 실행 파일에서는 대체가 되지 않아 한글이 전부 빈칸으로 나왔다. 특히 WebGL(브라우저)
+        /// 빌드에는 기댈 OS 폰트 자체가 없으므로, 한글을 쓰려면 폰트를 프로젝트에 직접
+        /// 넣는 것 말고는 방법이 없다.
+        /// 그래서 나눔고딕 서브셋(현대 한글 음절 11,172자 전체 포함, 약 1.8MB)을
+        /// Resources/Fonts에 넣고 그것을 우선 사용한다. 어떤 이유로든 못 찾으면 예전 내장
+        /// 폰트로 물러나서, 한글은 안 보여도 게임 자체는 돌아가게 한다.
+        /// </summary>
+        private static Font LoadUiFont()
+        {
+            var korean = Resources.Load<Font>(KoreanFontResourcePath);
+            if (korean != null) return korean;
+
+            Debug.LogWarning(
+                $"[UI] 한글 폰트를 찾지 못했습니다 (Assets/Resources/{KoreanFontResourcePath}.ttf). " +
+                "내장 폰트로 대체하며, 이 경우 한글은 표시되지 않습니다.");
+            return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        }
 
         private void EnsureEventSystem()
         {
@@ -467,15 +493,25 @@ namespace Defense2D
             _endText = CreateText("EndText", _endPanel.transform, "", 30, Color.white, TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(800, 140), new Vector2(0, 30));
 
-            CreateButton("RestartBtn", _endPanel.transform, "다시 시작", new Vector2(160, 40), new Vector2(-90, -60),
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), RestartGame);
+            var restart = CreateButton("RestartBtn", _endPanel.transform, "다시 시작", new Vector2(160, 40),
+                new Vector2(-90, -60), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), RestartGame);
 
             // [해설] 독립 실행 파일(빌드)로 돌릴 때는 에디터의 정지 버튼이 없어서, 이 버튼이 없으면
             // Alt+F4 말고는 게임을 끝낼 방법이 없다. 에디터에서는 Application.Quit()이 아무 일도
             // 하지 않으므로(정상 동작) 버튼을 눌러도 무해하다.
-            CreateButton("QuitBtn", _endPanel.transform, "게임 종료", new Vector2(160, 40), new Vector2(90, -60),
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Application.Quit,
-                new Color(0.28f, 0.2f, 0.22f, 0.92f));
+            // 다만 브라우저(WebGL)에서는 Application.Quit()이 탭을 닫을 수 없어 아무 반응이 없는
+            // "죽은 버튼"이 되므로, 그때는 아예 만들지 않고 "다시 시작"을 가운데로 옮긴다.
+            bool canQuit = Application.platform != RuntimePlatform.WebGLPlayer;
+            if (canQuit)
+            {
+                CreateButton("QuitBtn", _endPanel.transform, "게임 종료", new Vector2(160, 40), new Vector2(90, -60),
+                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Application.Quit,
+                    new Color(0.28f, 0.2f, 0.22f, 0.92f));
+            }
+            else
+            {
+                restart.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -60);
+            }
 
             _endPanel.SetActive(false);
         }

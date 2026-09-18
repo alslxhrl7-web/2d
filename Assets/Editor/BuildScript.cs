@@ -16,8 +16,10 @@ namespace Defense2D.EditorTools
     /// 여기에 둬야 한다.
     ///
     /// 쓰는 법
-    ///  - 에디터 메뉴: 상단 메뉴의 <b>Defense2D > Windows 실행 파일 빌드</b>
-    ///    → 프로젝트 폴더 아래 Build/Windows/ 에 exe가 만들어지고, 끝나면 탐색기가 열린다.
+    ///  - <b>Defense2D > Windows 실행 파일 빌드</b>
+    ///    → Build/Windows/ 에 exe가 만들어진다(유니티 없이 더블클릭 실행).
+    ///  - <b>Defense2D > WebGL 빌드 (itch.io 업로드용)</b>
+    ///    → Build/WebGL/ 과 업로드용 Build/WebGL-itch.zip이 만들어진다(브라우저에서 실행).
     ///  - 명령줄로 뽑고 싶을 때(선택):
     ///      "C:\Program Files\Unity\Hub\Editor\6000.6.0f1\Editor\Unity.exe" -quit -batchmode
     ///        -projectPath "C:\Users\mbc\Documents\user\2d"
@@ -27,6 +29,11 @@ namespace Defense2D.EditorTools
     {
         /// <summary>결과물이 만들어지는 폴더(프로젝트 루트 기준 상대 경로).</summary>
         private const string OutputDir = "Build/Windows";
+        private const string WebGlOutputDir = "Build/WebGL";
+
+        // itch.io 임베드 창 크기(업로드 설정에서 같은 값을 넣으면 스크롤 없이 딱 맞는다).
+        private const int ItchViewportWidth = 1280;
+        private const int ItchViewportHeight = 720;
 
         [MenuItem("Defense2D/Windows 실행 파일 빌드", false, 10)]
         public static void BuildWindows()
@@ -109,17 +116,123 @@ namespace Defense2D.EditorTools
                       "전체화면으로 바꾸려면 Project Settings > Player > Resolution and Presentation에서 조정하세요.");
         }
 
-        [MenuItem("Defense2D/빌드 폴더 열기", false, 11)]
+        /// <summary>
+        /// itch.io에 "브라우저에서 바로 플레이"로 올리기 위한 WebGL 빌드.
+        /// 끝나면 업로드용 zip까지 만들어 준다 — itch.io는 <b>index.html이 zip 최상단</b>에 있어야
+        /// 인식하는데, 폴더째로 압축해서 실패하는 경우가 흔해서 여기서 아예 맞춰서 만든다.
+        ///
+        /// 업로드 방법: itch.io 프로젝트에서 Kind of project를 <b>HTML</b>로 두고, 만들어진
+        /// webgl-itch.zip을 올린 뒤 "This file will be played in the browser"에 체크하면 된다.
+        /// </summary>
+        [MenuItem("Defense2D/WebGL 빌드 (itch.io 업로드용)", false, 11)]
+        public static void BuildWebGL()
+        {
+            string[] scenes = EditorBuildSettings.scenes
+                .Where(s => s.enabled)
+                .Select(s => s.path)
+                .ToArray();
+
+            if (scenes.Length == 0)
+            {
+                Fail("Build Settings에 포함된 씬이 없습니다. File > Build Settings에서 씬을 추가하세요.");
+                return;
+            }
+
+            // WebGL 모듈이 Unity Hub에서 설치돼 있지 않으면 빌드가 불가능하다. 알아보기 힘든
+            // 내부 에러 대신 먼저 안내한다.
+            if (!BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.WebGL, BuildTarget.WebGL))
+            {
+                Fail("이 유니티에 WebGL 모듈이 설치돼 있지 않습니다. " +
+                     "Unity Hub > 설치 > 해당 에디터의 톱니바퀴 > 모듈 추가에서 'WebGL Build Support'를 설치하세요.");
+                return;
+            }
+
+            if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL)
+            {
+                Debug.Log("[빌드] 활성 플랫폼을 WebGL로 전환합니다. 에셋을 다시 임포트하느라 몇 분 걸릴 수 있습니다.");
+                EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.WebGL, BuildTarget.WebGL);
+            }
+
+            ApplyWebGlSettings();
+
+            string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+            string outDir = Path.Combine(projectRoot, WebGlOutputDir);
+            // WebGL은 폴더 통째로 결과물이므로, 옛 결과가 섞이지 않도록 비우고 시작한다.
+            if (Directory.Exists(outDir)) Directory.Delete(outDir, true);
+            Directory.CreateDirectory(outDir);
+
+            var options = new BuildPlayerOptions
+            {
+                scenes = scenes,
+                locationPathName = outDir,
+                target = BuildTarget.WebGL,
+                targetGroup = BuildTargetGroup.WebGL,
+                options = BuildOptions.None,
+            };
+
+            BuildReport report = BuildPipeline.BuildPlayer(options);
+            BuildSummary summary = report.summary;
+
+            if (summary.result != BuildResult.Succeeded)
+            {
+                Fail($"WebGL 빌드 실패 ({summary.result}). Console 창의 에러 로그를 확인하세요.");
+                return;
+            }
+
+            string zipPath = Path.Combine(projectRoot, WebGlOutputDir + "-itch.zip");
+            string zipNote;
+            try
+            {
+                if (File.Exists(zipPath)) File.Delete(zipPath);
+                // CreateFromDirectory는 "폴더 안의 내용물"을 zip 최상단에 넣는다 = itch.io가 원하는 모양.
+                System.IO.Compression.ZipFile.CreateFromDirectory(outDir, zipPath);
+                zipNote = $"  업로드용 zip: {zipPath}";
+            }
+            catch (System.Exception e)
+            {
+                zipNote = "  (zip 자동 생성 실패: " + e.Message + ")\n" +
+                          $"  직접 압축하세요 — {outDir} 폴더를 여는 게 아니라 '폴더 안의 내용물'(index.html 포함)을 선택해 압축해야 합니다.";
+            }
+
+            Debug.Log(
+                $"[WebGL 빌드 성공] {outDir}\n{zipNote}\n" +
+                $"  크기: {summary.totalSize / (1024UL * 1024UL)} MB, 걸린 시간: {summary.totalTime.TotalSeconds:F1}초\n" +
+                $"  itch.io 업로드: 프로젝트의 Kind of project를 'HTML'로 하고 위 zip을 올린 뒤, " +
+                $"그 파일에 'This file will be played in the browser' 체크. " +
+                $"Embed 크기는 {ItchViewportWidth}x{ItchViewportHeight}를 권장합니다.");
+
+            if (!Application.isBatchMode) EditorUtility.RevealInFinder(outDir);
+        }
+
+        /// <summary>
+        /// [해설] itch.io에서 Unity WebGL이 실패하는 가장 흔한 원인이 <b>압축 형식</b>이다.
+        /// Brotli/Gzip으로 빌드하면 브라우저가 "decompression fallback" 에러를 내며 안 뜨는 경우가
+        /// 많아서, 용량이 조금 커지더라도 압축을 끄는 쪽이 확실하다. 나중에 용량을 줄이고 싶으면
+        /// Project Settings > Player > Publishing Settings에서 Brotli + Decompression Fallback을
+        /// 켜는 조합을 시도해 볼 수 있다.
+        /// </summary>
+        private static void ApplyWebGlSettings()
+        {
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
+            PlayerSettings.WebGL.dataCaching = true;   // 재방문 시 다시 받지 않도록
+            PlayerSettings.runInBackground = true;
+            PlayerSettings.defaultWebScreenWidth = ItchViewportWidth;
+            PlayerSettings.defaultWebScreenHeight = ItchViewportHeight;
+
+            Debug.Log($"[빌드] WebGL 설정: 압축 끔(itch.io 호환), 캔버스 {ItchViewportWidth}x{ItchViewportHeight}.");
+        }
+
+        [MenuItem("Defense2D/빌드 폴더 열기", false, 20)]
         public static void OpenBuildFolder()
         {
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
-            string outDir = Path.Combine(projectRoot, OutputDir);
-            if (!Directory.Exists(outDir))
+            string buildRoot = Path.Combine(projectRoot, "Build");
+            if (!Directory.Exists(buildRoot))
             {
-                Debug.LogWarning("[빌드] 아직 빌드 폴더가 없습니다. 먼저 'Defense2D > Windows 실행 파일 빌드'를 실행하세요.");
+                Debug.LogWarning("[빌드] 아직 빌드 폴더가 없습니다. 먼저 'Defense2D' 메뉴의 빌드를 실행하세요.");
                 return;
             }
-            EditorUtility.RevealInFinder(outDir);
+            EditorUtility.RevealInFinder(buildRoot);
         }
 
         private static void Fail(string message)
