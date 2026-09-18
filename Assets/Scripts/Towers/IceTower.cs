@@ -14,6 +14,10 @@ namespace Defense2D
         // 빙결탑은 세 타워 중 피해가 가장 낮은 대신, 아래 IceRadius만큼 범위로 슬로우를 건다.
         // 이 Damage가 실제로 적의 체력에서 깎이기까지 거치는 과정(전역 공격력 배율, 방패병 경감,
         // 단일 대상 vs 범위 판정)은 Projectile.Hit()의 주석에 세 타워를 묶어서 정리해 뒀다.
+        /// <summary>범위/연쇄 공격이라 조준 대상이 죽을 예정이어도 주변 적에게 피해가
+        /// 들어간다 — TowerBase.FindTarget이 대상을 거르지 않도록 true로 둔다.</summary>
+        protected override bool IsAreaAttack => true;
+
         public void Setup()
         {
             Type = TowerType.Ice;

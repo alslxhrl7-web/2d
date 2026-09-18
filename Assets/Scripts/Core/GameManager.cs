@@ -33,6 +33,34 @@ namespace Defense2D
         /// (SetPaused 주석 참고).</summary>
         public bool IsPaused { get; private set; }
 
+        // ---------- 배속 ----------
+
+        /// <summary>고를 수 있는 배속 단계. 여기에 값을 추가하면 버튼 순환에 자동으로 들어간다.</summary>
+        private static readonly float[] SpeedSteps = { 1f, 2f, 3f };
+        private int _speedIndex;
+
+        /// <summary>현재 배속(1 / 2 / 3). 일시정지가 아닐 때 Time.timeScale에 들어가는 값이다.</summary>
+        public float GameSpeed => SpeedSteps[_speedIndex];
+
+        /// <summary>
+        /// 배속을 다음 단계로 넘긴다(1x → 2x → 3x → 1x).
+        ///
+        /// [해설] 배속은 Time.timeScale 하나로 구현한다. 이 게임은 적 이동·타워 쿨타임·스폰
+        /// 간격·슬로우/기절 타이머·보스 능력 주기·피날레 제한시간이 전부 스케일된 시간
+        /// (Time.deltaTime / Time.time / WaitForSeconds)을 쓰기 때문에, 이 값 하나만 바꾸면
+        /// 게임 전체가 균일하게 빨라진다. UI 버튼은 timeScale과 무관하게 동작하므로 배속
+        /// 중에도 조작에는 영향이 없다.
+        ///
+        /// 일시정지(timeScale = 0)와 충돌하지 않도록, 멈춰 있는 동안 배속을 바꾸면 값만
+        /// 기억해 두고 실제 적용은 재개할 때 한다(SetPaused 참고).
+        /// </summary>
+        public void CycleSpeed()
+        {
+            _speedIndex = (_speedIndex + 1) % SpeedSteps.Length;
+            if (!IsPaused) Time.timeScale = GameSpeed;
+            UI.RefreshSpeedButton();
+        }
+
         /// <summary>게임이 이미 끝난 상태(게임오버/승리)에서는 일시정지를 걸 수 없다.</summary>
         private bool CanPause => State != GameState.GameOver && State != GameState.Victory;
 
@@ -82,6 +110,9 @@ namespace Defense2D
             // P는 언제나 일시정지 토글.
             if (kb.pKey.wasPressedThisFrame) TogglePause();
 
+            // F는 배속 순환. 게임이 끝난 뒤에는 바꿀 이유가 없으므로 막는다.
+            if (kb.fKey.wasPressedThisFrame && CanPause) CycleSpeed();
+
             if (!kb.escapeKey.wasPressedThisFrame) return;
 
             // ESC: 타워를 놓는 중/철거하는 중이면 그 모드를 먼저 취소하고, 그게 아니면 일시정지.
@@ -107,7 +138,9 @@ namespace Defense2D
             if (IsPaused == paused) return;
 
             IsPaused = paused;
-            Time.timeScale = paused ? 0f : 1f;
+            // 재개할 때 1이 아니라 현재 배속으로 돌아간다 — 그러지 않으면 2배속으로 놀다가
+            // 한 번 멈췄다 풀면 조용히 1배속이 되어 버린다.
+            Time.timeScale = paused ? 0f : GameSpeed;
 
             // 일시정지 중에 타워를 놓거나 철거하지 못하게 한다(무한 계획 시간 방지).
             if (paused && Build != null) Build.CancelMode();
@@ -256,12 +289,16 @@ namespace Defense2D
             EnterPrep();
         }
 
+        /// <summary>"수용력 강화" 보상 1회당 올려 주는 동시 생존 허용 한도.
+        /// UIManager.AllUpgrades의 안내 문구("동시 생존 허용 한도 +6")와 반드시 같은 값이어야 한다.</summary>
+        public const int AliveCapacityBonus = 6;
+
         private void ApplyUpgrade(UpgradeOption opt)
         {
             switch (opt.Kind)
             {
                 case UpgradeKind.AliveCapacity:
-                    Waves.IncreaseAliveCapacity(1.15f);
+                    Waves.IncreaseAliveCapacity(AliveCapacityBonus);
                     break;
                 case UpgradeKind.GoldGain:
                     // [해설] 이 배율이 이제 처치 보상뿐 아니라 웨이브 클리어 보너스에도 적용되므로

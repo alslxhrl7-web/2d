@@ -86,22 +86,57 @@ namespace Defense2D
             }
         }
 
+        /// <summary>
+        /// 이 타워가 범위 공격인가.
+        /// [해설] 아래 FindTarget이 "이미 죽을 적"을 거를 때 쓴다. 단일 대상 타워는 그런 적에게
+        /// 쏘면 100% 낭비지만, 범위 타워는 <b>조준 대상이 죽을 예정이어도 그 주변 적들에게는
+        /// 피해가 그대로 들어가므로</b> 쏘는 게 이득이다. 그래서 범위 타워는 거르지 않는다.
+        /// </summary>
+        protected virtual bool IsAreaAttack => false;
+
+        /// <summary>
+        /// 사거리 안에서 가장 진행도가 높은(=가장 위협적인) 적을 고른다.
+        ///
+        /// [해설] ★ 딜 누수 수정. 예전에는 남은 체력을 보지 않고 진행도만 봤다. 그래서 체력이
+        /// 5밖에 안 남은 적에게 타워 세 개가 동시에 조준했고, 첫 발이 죽이면 나머지 두 발은
+        /// 명중하지 못하고 사라졌다(Projectile.Update의 자폭 분기). 쏜 순간 이미 낭비가
+        /// 확정된 발사였다.
+        ///
+        /// 이제 조준 판단을 EffectiveHP(남은 체력 - 날아오는 피해)로 한다. 그 값이 0 이하인
+        /// 적은 "이미 배정된 피해만으로 죽는" 적이므로 후보에서 뺀다. 사거리 안이 전부 그런
+        /// 적뿐이면 단일 대상 타워는 <b>null을 돌려주고 발사를 아낀다</b> — 이때 Update()가
+        /// 쿨다운을 초기화하지 않으므로, 유효한 적이 나타나는 즉시 곧바로 쏠 수 있다.
+        /// (범위 타워는 IsAreaAttack이 true라 fallback으로 그냥 쏜다. 위 설명 참고.)
+        /// </summary>
         protected EnemyController FindTarget()
         {
-            EnemyController best = null;
+            EnemyController best = null;          // 아직 죽지 않을 적 중 가장 앞선 적
             float bestProgress = -1f;
+            EnemyController fallback = null;      // 죽을 예정인 적까지 포함한 가장 앞선 적
+            float fallbackProgress = -1f;
+
             foreach (var e in EnemyController.Active)
             {
                 if (e == null || e.IsDead) continue;
                 float d = Vector2.Distance(transform.position, e.transform.position);
                 if (d > Range) continue;
+
+                if (e.PathProgress > fallbackProgress)
+                {
+                    fallbackProgress = e.PathProgress;
+                    fallback = e;
+                }
+
+                if (e.EffectiveHP <= 0f) continue; // 날아오는 피해만으로 이미 죽는 적
                 if (e.PathProgress > bestProgress)
                 {
                     bestProgress = e.PathProgress;
                     best = e;
                 }
             }
-            return best;
+
+            if (best != null) return best;
+            return IsAreaAttack ? fallback : null;
         }
 
         protected abstract void Fire(EnemyController target);

@@ -24,6 +24,9 @@ namespace Defense2D
         private bool _cannonballVisual;
         private ImpactEffectKind _impactEffect;
 
+        /// <summary>이 투사체가 대상에게 잡아 둔 예약 피해량. 해제하면 0으로 되돌린다.</summary>
+        private float _reserved;
+
         public void Init(EnemyController target, float speed, float damage, DamageSource source, Color color,
             float splashRadius = 0f, float slowFactor = 1f, float slowDuration = 0f,
             bool arrowVisual = false, ImpactEffectKind impactEffect = ImpactEffectKind.None,
@@ -39,6 +42,19 @@ namespace Defense2D
             _arrowVisual = arrowVisual;
             _impactEffect = impactEffect;
             _cannonballVisual = cannonballVisual;
+
+            // [해설] ★ 딜 누수 방지. 날아가는 동안 "이만큼의 피해가 이 적에게 이미 배정됐다"고
+            // 적 쪽에 적어 둔다(EnemyController.IncomingDamage). 그러면 다른 타워가
+            // TowerBase.FindTarget에서 이 적을 EffectiveHP <= 0으로 보고 건너뛰므로,
+            // 이미 죽을 적에게 헛발을 쏘는 일이 사라진다. 범위 공격이라도 예약하는 값은
+            // "조준 대상 한 명이 받을 몫"뿐이다 — 주변 적이 받을 몫은 누가 맞을지 착탄 전까지
+            // 알 수 없고, 애초에 그쪽은 낭비가 아니기 때문이다.
+            if (_target != null)
+            {
+                float mult = (_source == DamageSource.Tower) ? TowerBase.GlobalDamageMultiplier : 1f;
+                _reserved = _target.ExpectedDamage(_damage * mult, _source);
+                _target.ReserveIncoming(_reserved);
+            }
 
             var sr = gameObject.AddComponent<SpriteRenderer>();
             sr.sortingOrder = 8;
@@ -65,8 +81,16 @@ namespace Defense2D
         {
             if (_target == null || _target.IsDead)
             {
-                Destroy(gameObject);
-                return;
+                // [해설] ★ 딜 누수 2단계 수정. 예약(IncomingDamage)만으로는 누수가 완전히 없어지지
+                // 않는다. 번개탑처럼 <b>즉시 피해</b>를 주는 공격은 예약할 시간 자체가 없어서,
+                // 화살이 날아가는 도중에 번개가 먼저 적을 죽이면 그 화살은 여전히 허공에 사라진다.
+                // 그래서 대상이 죽으면 곧바로 자폭하지 않고, 근처의 살아 있는 적으로 목표를
+                // 갈아탄다. 갈아탈 적이 없을 때만 사라진다.
+                if (!TryRetarget())
+                {
+                    Destroy(gameObject);
+                    return;
+                }
             }
 
             Vector3 dir = _target.transform.position - transform.position;
@@ -103,8 +127,66 @@ namespace Defense2D
         ///                                     (EnemyController.TakeDamage에서 처리)
         /// 예) 방패병이 "타워 강화"를 한 번 고른 뒤 포격탑에 맞으면 26 × 1.2 × 0.5 = 15.6 피해.
         /// </summary>
+        /// <summary>대상이 죽었을 때, 이 반경 안의 살아 있는 적으로 목표를 갈아탄다.
+        /// 너무 크게 잡으면 화면 반대편까지 날아가는 이상한 궤적이 나오므로 적당히 좁게 둔다.</summary>
+        private const float RetargetRadius = 2.5f;
+
+        /// <summary>
+        /// 죽은 대상 대신 가까운 다른 적을 찾아 목표를 옮긴다. 성공하면 true.
+        /// 이미 죽을 예정인 적(EffectiveHP &lt;= 0)은 피하되, 범위 공격이라면 그런 적이라도
+        /// 주변에 피해가 들어가므로 차선책으로 받아들인다.
+        /// </summary>
+        private bool TryRetarget()
+        {
+            ReleaseReservation(); // 죽은 대상에 걸어 둔 예약을 먼저 정리한다
+
+            EnemyController best = null;
+            float bestDist = float.MaxValue;
+            EnemyController fallback = null;
+            float fallbackDist = float.MaxValue;
+
+            foreach (var e in EnemyController.Active)
+            {
+                if (e == null || e.IsDead) continue;
+                float d = Vector2.Distance(transform.position, e.transform.position);
+                if (d > RetargetRadius) continue;
+
+                if (d < fallbackDist) { fallbackDist = d; fallback = e; }
+                if (e.EffectiveHP <= 0f) continue;
+                if (d < bestDist) { bestDist = d; best = e; }
+            }
+
+            var next = best != null ? best : (_splashRadius > 0f ? fallback : null);
+            if (next == null) return false;
+
+            _target = next;
+            float mult = (_source == DamageSource.Tower) ? TowerBase.GlobalDamageMultiplier : 1f;
+            _reserved = next.ExpectedDamage(_damage * mult, _source);
+            next.ReserveIncoming(_reserved);
+            return true;
+        }
+
+        /// <summary>잡아 둔 예약 피해를 대상에게 돌려준다. 명중했을 때와, 어떤 이유로든
+        /// 투사체가 사라질 때(대상이 먼저 죽음 / 씬 전환 / 게임 종료) 모두 호출된다.
+        /// _reserved를 0으로 만들기 때문에 두 경로가 겹쳐도 이중 해제가 되지 않는다.</summary>
+        private void ReleaseReservation()
+        {
+            if (_reserved <= 0f) return;
+            if (_target != null) _target.ReleaseIncoming(_reserved);
+            _reserved = 0f;
+        }
+
+        /// <summary>Destroy(gameObject)로 사라지는 모든 경로를 한 번에 막아 주는 안전망.
+        /// 여기서 해제하지 않으면, 대상이 먼저 죽어 투사체가 자폭할 때 예약이 영영 남아
+        /// "살아 있는데 아무도 쏘지 않는 적"이 생긴다.</summary>
+        private void OnDestroy() => ReleaseReservation();
+
         private void Hit()
         {
+            // 피해를 주기 전에 먼저 예약을 푼다. 순서가 반대면 이 투사체 자신의 예약 때문에
+            // 대상의 EffectiveHP가 실제보다 낮게 보이는 순간이 생긴다.
+            ReleaseReservation();
+
             // ②단계: 타워가 쏜 것만 전역 공격력 배율을 받는다(보스 소환물 등 타워가 아닌 피해원은 제외).
             float mult = (_source == DamageSource.Tower) ? TowerBase.GlobalDamageMultiplier : 1f;
 

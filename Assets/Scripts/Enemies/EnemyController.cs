@@ -211,6 +211,49 @@ namespace Defense2D
             _stunTimer = Mathf.Max(_stunTimer, duration);
         }
 
+        // ---------- 딜 누수 방지용 예약 피해 ----------
+
+        /// <summary>
+        /// 이미 발사되어 <b>날아오고 있지만 아직 명중하지 않은</b> 피해의 합계.
+        ///
+        /// [해설] ★ 왜 필요한가 — 딜 누수 문제. 예전에는 타워가 사거리 안에서 "가장 앞선 적"만
+        /// 보고 쐈기 때문에, 체력 5만 남은 적에게 여러 타워가 동시에 조준해 화살을 퍼부었다.
+        /// 첫 발이 적을 죽이면 나머지 화살은 Projectile.Update의 "대상이 죽었으면 자폭" 분기에
+        /// 걸려 <b>피해를 한 번도 주지 못하고 사라졌다</b>. 쏘는 순간 이미 낭비가 확정된 셈이다.
+        ///
+        /// 그래서 발사 시점에 "이 적에게 몇의 피해가 예약됐는지"를 적 쪽에 적어 둔다. 타워는
+        /// 조준할 때 남은 체력이 아니라 <b>EffectiveHP(체력 - 예약)</b>를 보고, 그 값이 0 이하인
+        /// 적(= 날아오는 것만으로 이미 죽는 적)은 건너뛴다. 예약은 명중하거나 투사체가 사라질 때
+        /// 반드시 해제되므로(Projectile.ReleaseReservation), 투사체가 중간에 소멸해도 그 적은
+        /// 곧바로 다시 유효한 표적이 된다.
+        /// </summary>
+        public float IncomingDamage { get; private set; }
+
+        /// <summary>날아오는 피해까지 반영한 "실질 남은 체력". 타워의 조준 판단 기준이다.</summary>
+        public float EffectiveHP => HP - IncomingDamage;
+
+        /// <summary>기본 피해량이 이 적에게 실제로 몇으로 들어가는지 계산한다(방패병 경감 반영).
+        /// TakeDamage와 예약 계산이 반드시 같은 식을 쓰도록 여기 한 곳에 모아 둔다.</summary>
+        public float ExpectedDamage(float amount, DamageSource source)
+        {
+            // 방패병(ShieldTowerDamageReduction = 0.5)이면 타워 피해만 절반으로 줄인다.
+            if (source == DamageSource.Tower && ShieldTowerDamageReduction > 0f)
+                amount *= (1f - ShieldTowerDamageReduction);
+            return amount;
+        }
+
+        public void ReserveIncoming(float amount)
+        {
+            if (amount > 0f) IncomingDamage += amount;
+        }
+
+        /// <summary>예약 해제. 부동소수점 오차가 쌓여 음수로 내려가지 않도록 0에서 자른다.</summary>
+        public void ReleaseIncoming(float amount)
+        {
+            if (amount <= 0f) return;
+            IncomingDamage = Mathf.Max(0f, IncomingDamage - amount);
+        }
+
         /// <summary>
         /// 피해를 받는다. [해설] 타워 피해 계산의 마지막 단계다 — 앞 단계는 Projectile.Hit()에
         /// 정리해 뒀다(타워별 기본 피해 → 전역 공격력 배율 → 여기서 방패병 경감).
@@ -220,9 +263,9 @@ namespace Defense2D
         public virtual void TakeDamage(float amount, DamageSource source)
         {
             if (IsDead) return;
-            // 방패병(ShieldTowerDamageReduction = 0.5)이면 타워 피해만 절반으로 줄인다.
-            if (source == DamageSource.Tower && ShieldTowerDamageReduction > 0f)
-                amount *= (1f - ShieldTowerDamageReduction);
+            // 방패병 경감 등, "기본 피해 → 실제로 깎이는 양" 변환은 ExpectedDamage 한 곳에 모아 뒀다.
+            // 예약(IncomingDamage) 계산도 같은 함수를 쓰므로 두 식이 어긋날 일이 없다.
+            amount = ExpectedDamage(amount, source);
 
             HP -= amount;
             RefreshHpBar();

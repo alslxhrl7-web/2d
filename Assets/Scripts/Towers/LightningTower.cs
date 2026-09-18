@@ -23,6 +23,10 @@ namespace Defense2D
         // 두 번째 이후로 튈 때마다 ChainFalloff(0.65)가 곱해져 점점 약해진다.
         // 단일 대상만 놓고 보면 초당 10.8로 세 타워 중 중간이지만, 적이 줄지어 있으면
         // 한 번에 최대 4마리를 때리므로 실효 피해는 훨씬 커진다(아래 계산 참고).
+        /// <summary>범위/연쇄 공격이라 조준 대상이 죽을 예정이어도 주변 적에게 피해가
+        /// 들어간다 — TowerBase.FindTarget이 대상을 거르지 않도록 true로 둔다.</summary>
+        protected override bool IsAreaAttack => true;
+
         public void Setup()
         {
             Type = TowerType.Lightning;
@@ -91,6 +95,7 @@ namespace Defense2D
             {
                 if (e == null || e.IsDead) continue;
                 if (_chained.Contains(e)) continue;
+                if (e.EffectiveHP <= 0f) continue; // 다른 타워의 투사체만으로 이미 죽을 적에는 튀지 않는다
 
                 float d = Vector2.Distance(from, e.transform.position);
                 if (d > ChainJumpRadius || d >= bestDist) continue;

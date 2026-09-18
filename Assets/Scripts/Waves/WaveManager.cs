@@ -48,7 +48,21 @@ namespace Defense2D
         // [해설] 거점 체력이 없는 지금, 이것이 게임의 기본 패배 조건이다. 웨이브 보상으로
         // 이 한도를 늘릴 수 있다(IncreaseAliveCapacity 참고). 스테이지 피날레는 별도로
         // 제한시간 패배 조건도 함께 가진다(아래 Update 참고).
-        private const int WaveEnemyCount = 50;
+        /// <summary>
+        /// 웨이브에 나오는 일반 적의 수. 60마리에서 시작해 두 웨이브마다 한 마리씩 늘어난다
+        /// (1웨 60 · 25웨 72 · 50웨 84 · 75웨 97).
+        ///
+        /// [해설] ★ 이 값이 50이던 시절, 게임의 <b>유일한 패배 조건이 사실상 죽어 있었다</b>.
+        /// 패배 판정이 "동시 생존 적 &gt; 한도(50)"인데 한 웨이브에 나오는 적도 정확히 50마리라,
+        /// 한 마리도 못 잡아야 겨우 50이 되고 50 &gt; 50은 거짓이다. 즉 평범한 웨이브에서는
+        /// 아무리 못해도 절대 지지 않았다. 그런데 화면 위 게이지는 늘 50/50으로 새빨갛게 차
+        /// 있어서, 곧 죽을 것처럼 보이는데 실제로는 죽지 않는 이상한 상태였다.
+        ///
+        /// 이제 적 수가 한도보다 많으므로, 웨이브 중에 일정 수를 처리하지 못하면 실제로 밀려서
+        /// 진다. 웨이브가 갈수록 적 수도 함께 늘어나기 때문에 후반에도 긴장이 유지된다.
+        /// (한도를 올리는 보상은 Upgrades의 AliveCapacity — 아래 IncreaseAliveCapacity 참고.)
+        /// </summary>
+        private static int EnemyCountForWave(int globalWave) => 60 + (globalWave - 1) / 2;
 
         /// <summary>일반 적 1마리 처치 보상(골드). 0.5 = "2마리 잡을 때마다 1골드".
         /// 종류(몹/돌진/방패)와 웨이브에 상관없이 고정이다 — 위 SpawnEnemy의 해설 참고.</summary>
@@ -161,6 +175,11 @@ namespace Defense2D
             Path.WaypointsA = template.WaypointsA;
             Path.WaypointsB = template.WaypointsB;
             GameBootstrapper.RedrawPathVisuals(Path);
+
+            // [해설] 길이 바뀌면 예전 길 기준으로 세워둔 타워가 새 길 바깥에 남거나 길 위에
+            // 걸치게 된다. 눈에 보이는 길만 새로 그리고 타워를 방치하면 "설치할 수 없는 자리에
+            // 서 있는 타워"가 생기므로, 여기서 곧바로 정리하고 건설비를 전액 돌려준다.
+            Build?.RevalidateTowersForNewPath();
         }
 
         /// <summary>스테이지 중간 보스(10, 20웨이브...) 여부와 피날레(스테이지 마지막 웨이브) 여부를
@@ -206,7 +225,7 @@ namespace Defense2D
             }
 
             // 일반 웨이브(스테이지 피날레도 여기서 물량을 만든 뒤, 아래에서 보스 항목만 추가로 얹는다)
-            int count = WaveEnemyCount;
+            int count = EnemyCountForWave(CurrentWave);
             for (int i = 0; i < count; i++)
             {
                 EnemyType type = PickTypeForWave(CurrentWave, i);
@@ -412,9 +431,17 @@ namespace Defense2D
             _isStageFinale = false;
         }
 
-        public void IncreaseAliveCapacity(float multiplier)
+        /// <summary>보상 "수용력 강화"로 동시 생존 허용 한도를 올린다.
+        ///
+        /// [해설] ★ 예전에는 ×1.15 배율이었는데, 배율은 고를수록 눈덩이처럼 불어난다
+        /// (50 → 57 → 66 → 76 → 87 → 100). 적 수는 웨이브당 0.5마리씩 <b>직선으로</b> 느는데
+        /// 한도만 기하급수로 뛰니, 이 보상을 두세 번만 골라도 패배 조건이 다시 영영 닿지 않게
+        /// 된다 — 위 EnemyCountForWave에서 고친 문제가 그대로 되살아나는 셈이다.
+        /// 그래서 적 수와 같은 단위인 <b>가산(+6)</b>으로 바꿨다(50 → 56 → 62 → 68 → 74 → 80).
+        /// 이제 한도와 적 수가 비슷한 속도로 올라가서, 보상을 골라도 긴장이 남는다.</summary>
+        public void IncreaseAliveCapacity(int amount)
         {
-            _maxAliveCapacity = Mathf.Max(_maxAliveCapacity + 1, Mathf.RoundToInt(_maxAliveCapacity * multiplier));
+            _maxAliveCapacity += Mathf.Max(1, amount);
         }
 
         // ---------- 준비(Prep) 단계에서 "다음 웨이브"를 미리 내다보기 위한 헬퍼 ----------

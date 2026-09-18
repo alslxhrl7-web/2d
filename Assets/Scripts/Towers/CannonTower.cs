@@ -14,12 +14,16 @@ namespace Defense2D
         // Damage: 폭발 반경 안 적 "1명당" 피해량(반경 안에 있으면 여러 명에게 동시에 들어간다).
         // 이 Damage가 실제로 적의 체력에서 깎이기까지 거치는 과정(전역 공격력 배율, 방패병 경감,
         // 단일 대상 vs 범위 판정)은 Projectile.Hit()의 주석에 세 타워를 묶어서 정리해 뒀다.
+        /// <summary>범위/연쇄 공격이라 조준 대상이 죽을 예정이어도 주변 적에게 피해가
+        /// 들어간다 — TowerBase.FindTarget이 대상을 거르지 않도록 true로 둔다.</summary>
+        protected override bool IsAreaAttack => true;
+
         public void Setup()
         {
             Type = TowerType.Cannon;
-            Range = 3.0f; // 사거리 소폭 증가 (2.9 → 3.3)
-            FireInterval = 2.0f;
-            Damage = 20f; // 공격력 증가 (14 → 26)
+            Range = 3.3f; // 사거리 소폭 증가 (2.9 → 3.3)
+            FireInterval = 1.5f;
+            Damage = 26f; // 공격력 증가 (14 → 26)
         }
 
         // [해설] 폭발(스플래시) 반경. 값이 클수록 한 발로 더 넓게 "주변 유닛"까지 피해가 퍼진다.

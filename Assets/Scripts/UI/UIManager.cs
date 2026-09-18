@@ -58,6 +58,7 @@ namespace Defense2D
 
         private GameObject _pausePanel;
         private Button _pauseButton;
+        private Button _speedButton;
 
         private static readonly Dictionary<int, string> BossHints = new Dictionary<int, string>
         {
@@ -70,7 +71,7 @@ namespace Defense2D
 
         private static readonly List<UpgradeOption> AllUpgrades = new List<UpgradeOption>
         {
-            new UpgradeOption{ Kind = UpgradeKind.AliveCapacity, Label = "수용력 강화", Description = "동시 생존 허용 한도 +15%" },
+            new UpgradeOption{ Kind = UpgradeKind.AliveCapacity, Label = "수용력 강화", Description = $"동시 생존 허용 한도 +{GameManager.AliveCapacityBonus}" },
             new UpgradeOption{ Kind = UpgradeKind.GoldGain, Label = "재화 감각", Description = "골드 획득량 +10%" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Label = "타워 강화", Description = "모든 타워 공격력 +20%" },
         };
@@ -278,6 +279,23 @@ namespace Defense2D
             pauseLabel.fontSize = 13;
             pauseLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
             pauseLabel.verticalOverflow = VerticalWrapMode.Overflow;
+
+            // [해설] 배속 버튼. 일시정지 버튼 왼쪽에 붙인다. 키(F)만으로도 되지만, WebGL에서
+            // 캔버스에 키보드 포커스가 없을 때를 대비해 일시정지와 마찬가지로 버튼을 함께 둔다.
+            _speedButton = CreateButton("SpeedBtn", _canvas.transform, "배속 x1", new Vector2(74, 26),
+                new Vector2(-150, -16), new Vector2(1, 1), new Vector2(1, 1),
+                () => Game.CycleSpeed(), new Color(0.18f, 0.3f, 0.26f, 0.92f));
+            var speedLabel = _speedButton.GetComponentInChildren<Text>();
+            speedLabel.fontSize = 13;
+            speedLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            speedLabel.verticalOverflow = VerticalWrapMode.Overflow;
+        }
+
+        /// <summary>배속 버튼의 표기를 현재 배속에 맞춘다. GameManager.CycleSpeed가 호출한다.</summary>
+        public void RefreshSpeedButton()
+        {
+            if (_speedButton == null) return;
+            _speedButton.GetComponentInChildren<Text>().text = $"배속 x{Game.GameSpeed:0.#}";
         }
 
         // ---------- 일시정지 ----------
@@ -349,6 +367,7 @@ namespace Defense2D
             // 게임이 끝난 뒤에는 멈출 것이 없으므로 일시정지 버튼을 숨긴다.
             bool over = Game.State == GameState.GameOver || Game.State == GameState.Victory;
             if (_pauseButton != null) _pauseButton.gameObject.SetActive(!over);
+            if (_speedButton != null) _speedButton.gameObject.SetActive(!over);
 
             // 일시정지 중에는 "웨이브 시작/스킵" 버튼을 눌러 진행시킬 수 없어야 한다.
             if (Game.IsPaused)
@@ -421,7 +440,7 @@ namespace Defense2D
 
         private void BuildHintText()
         {
-            CreateText("Hint", _canvas.transform, "TAB 건설 메뉴 · 클릭으로 타워 배치/철거 · 우클릭·ESC 취소 · P 일시정지",
+            CreateText("Hint", _canvas.transform, "TAB 건설 메뉴 · 클릭으로 타워 배치/철거 · 우클릭·ESC 취소 · P 일시정지 · F 배속",
                 14, new Color(1, 1, 1, 0.7f), TextAnchor.MiddleCenter, new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 new Vector2(700, 24), new Vector2(0, 8));
         }

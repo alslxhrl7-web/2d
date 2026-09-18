@@ -218,6 +218,12 @@ namespace Defense2D
         {
             if (Mathf.Abs(pos.x) > GameConstants.WorldHalfWidth - 0.3f) return false;
             if (Mathf.Abs(pos.y) > GameConstants.WorldHalfHeight - 0.3f) return false;
+
+            // [해설] ★ 타워는 길(사각형 루프) <b>안쪽</b>에만 세울 수 있다. 예전에는 이 검사가
+            // 없어서 사각형 바깥 빈 땅 어디에나 세워졌고, 화면 전체에 타워가 흩어지는 그림이
+            // 나왔다. 아래 거리 검사(길에 너무 붙지 않기)와 합쳐지면, 실제 건설 가능 영역은
+            // "사각형을 MinDistanceFromPath만큼 안으로 줄인 정사각형"이 된다.
+            if (!Path.ContainsPoint(pos)) return false;
             if (Path.DistanceToNearestPath(pos) < GameConstants.MinDistanceFromPath) return false;
 
             foreach (var t in _towers)
@@ -398,6 +404,51 @@ namespace Defense2D
             if (placed != null) placed.BaseColor = sr.color;
 
             _towers.Add(go);
+        }
+
+        /// <summary>
+        /// 스테이지가 바뀌어 길이 교체된 직후, 새 길 기준으로 더 이상 유효하지 않은 자리에
+        /// 남아 있는 타워를 정리하고 건설비를 <b>전액</b> 돌려준다.
+        ///
+        /// [해설] ★ 버그 수정. 스테이지마다 사각형의 위치와 크기가 달라지는데(PathLibrary의
+        /// 도안 3종), 예전에는 길만 새로 그리고 이미 세워둔 타워는 그대로 뒀다. 그래서 스테이지가
+        /// 넘어가면 타워들이 새 길 <b>바깥으로 빠져나가거나 길 위에 걸쳐</b> 있는, 규칙상
+        /// 애초에 세울 수 없던 자리에 서 있게 됐다.
+        ///
+        /// 환불을 50%(철거와 동일)가 아니라 전액으로 하는 이유: 플레이어가 잘못 지은 게 아니라
+        /// 게임 쪽 사정으로 철거되는 것이라, 손해를 지우면 스테이지 전환이 그냥 벌점이 된다.
+        ///
+        /// 타워끼리의 최소 간격은 다시 보지 않는다 — 그 조건은 길이 바뀌어도 변하지 않으므로
+        /// 이미 지켜져 있고, 여기서 또 검사하면 멀쩡한 이웃 타워끼리 서로를 무효로 만든다.
+        /// </summary>
+        public void RevalidateTowersForNewPath()
+        {
+            _towers.RemoveAll(t => t == null);
+
+            int removed = 0, refunded = 0;
+            for (int i = _towers.Count - 1; i >= 0; i--)
+            {
+                var go = _towers[i];
+                Vector3 pos = go.transform.position;
+
+                bool stillValid = Path.ContainsPoint(pos)
+                                  && Path.DistanceToNearestPath(pos) >= GameConstants.MinDistanceFromPath;
+                if (stillValid) continue;
+
+                var tb = go.GetComponent<TowerBase>();
+                TowerType type = tb != null ? tb.Type : TowerType.Arrow;
+                refunded += GameConstants.CostFor(type); // 전액 환불
+                removed++;
+
+                _towers.RemoveAt(i);
+                Destroy(go); // TowerBase.OnDisable이 Active 목록에서도 빼 준다
+            }
+
+            if (removed == 0) return;
+
+            ClearRemoveHover(); // 방금 파괴된 타워를 가리키고 있었을 수 있다
+            Game.RefundGold(refunded);
+            Game.ShowBanner($"길이 바뀌어 타워 {removed}개를 철거했습니다 — 골드 {refunded} 전액 반환");
         }
 
         /// <summary>보스 능력(2번, 5번 페이즈)으로 임의의 타워를 잠시 무력화한다.</summary>
