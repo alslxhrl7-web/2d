@@ -29,7 +29,21 @@ namespace Defense2D
         [NonSerialized] public List<Vector3> Waypoints;
         private int _waypointIndex;
         protected SpriteRenderer _sr;
+
+        // ---------- 머리 위 체력바 ----------
+        private Transform _hpBarRoot;     // 부모(적)의 스케일을 상쇄해 주는 홀더
+        private Transform _hpBarBgTf;
         private Transform _hpFillTf;
+        private SpriteRenderer _hpFillSr;
+        private float _visualWorldHeight = EnemyArtWorldHeight; // 현재 보이는 몸 높이(월드 단위)
+        private float _barWidth, _barHeight;
+
+        /// <summary>체력바 조각들이 공유하는 흰색 사각 스프라이트. 색은 SpriteRenderer.color로 입힌다.
+        /// [해설] 적이 웨이브마다 50마리씩 생겼다 사라지는데 매번 8x8 텍스처를 새로 만들면 낭비라
+        /// 하나만 만들어 돌려 쓴다. 씬을 다시 불러와 텍스처가 파괴되면 null 검사에 걸려 다시 만든다.</summary>
+        private static Sprite _barSprite;
+        private static Sprite BarSprite =>
+            _barSprite != null ? _barSprite : (_barSprite = SpriteFactory.SolidSquare(Color.white));
 
         private const float EnemyArtWorldHeight = 1.1f;
         protected const float BossArtWorldHeight = 2.0f;
@@ -84,6 +98,7 @@ namespace Defense2D
                 };
                 float scale = type == EnemyType.Shield ? 0.62f : type == EnemyType.Charger ? 0.5f : 0.55f;
                 transform.localScale = Vector3.one * scale;
+                _visualWorldHeight = _sr.sprite.bounds.size.y * scale;
             }
 
             if (type == EnemyType.Shield) ShieldTowerDamageReduction = 0.5f;
@@ -93,22 +108,82 @@ namespace Defense2D
 
         private void BuildHpBar()
         {
-            var bg = new GameObject("HPBarBG");
-            bg.transform.SetParent(transform, false);
-            bg.transform.localPosition = new Vector3(0, 0.55f, 0);
-            var bgSr = bg.AddComponent<SpriteRenderer>();
-            bgSr.sprite = SpriteFactory.SolidSquare(new Color(0, 0, 0, 0.6f));
-            bgSr.sortingOrder = 6;
-            bg.transform.localScale = new Vector3(0.9f, 0.12f, 1f);
+            _hpBarRoot = new GameObject("HPBar").transform;
+            _hpBarRoot.SetParent(transform, false);
 
-            var fg = new GameObject("HPBarFG");
-            fg.transform.SetParent(transform, false);
-            fg.transform.localPosition = new Vector3(0, 0.55f, -0.01f);
-            var fgSr = fg.AddComponent<SpriteRenderer>();
-            fgSr.sprite = SpriteFactory.SolidSquare(new Color(0.85f, 0.2f, 0.2f, 1f));
-            fgSr.sortingOrder = 7;
-            fg.transform.localScale = new Vector3(0.86f, 0.09f, 1f);
-            _hpFillTf = fg.transform;
+            _hpBarBgTf = NewBarPiece("HPBarBG", new Color(0.04f, 0.05f, 0.08f, 0.92f), 6).transform;
+            _hpFillSr = NewBarPiece("HPBarFill", Color.white, 7);
+            _hpFillTf = _hpFillSr.transform;
+
+            LayoutHpBar();
+        }
+
+        private SpriteRenderer NewBarPiece(string name, Color color, int sortingOrder)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(_hpBarRoot, false);
+            var sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = BarSprite;
+            sr.color = color;
+            sr.sortingOrder = sortingOrder;
+            return sr;
+        }
+
+        /// <summary>
+        /// 체력바를 "머리 위"에, 화면에서 확실히 보이는 크기로 배치한다.
+        ///
+        /// [해설] ★ 예전에는 체력바가 사실상 보이지 않았다. 원인은 <b>부모(적)의 스케일</b>이다.
+        /// 적 스프라이트는 원본이 크기 때문에(예: 682px @PPU 100 = 6.82유닛) 원하는 몸 크기
+        /// 1.1유닛에 맞추려고 transform.localScale이 0.16배로 줄어 있는데, 체력바가 그 자식이라
+        /// 같이 0.16배로 쪼그라들었다. 실제 계산해 보면 화면에서 약 3 x 0.4 픽셀이고, 위치도
+        /// 로컬 y=0.55 * 0.16 = 0.09유닛이라 머리 위가 아니라 몸통 한복판이었다.
+        ///
+        /// 그래서 체력바를 담는 홀더(_hpBarRoot)의 스케일에 <b>부모 스케일의 역수</b>를 넣어
+        /// 상쇄한다. 이렇게 하면 그 아래 조각들은 부모가 아무리 작아도 항상 월드 단위 크기로
+        /// 그려지고, 위치도 몸 높이를 기준으로 정확히 머리 위에 오게 된다.
+        /// 보스는 Init 이후 InitBoss()에서 아트가 한 번 더 바뀌며 스케일이 달라지므로,
+        /// ApplyArt()에서도 이 메서드를 다시 불러 준다.
+        /// </summary>
+        private void LayoutHpBar()
+        {
+            if (_hpBarRoot == null) return;
+
+            _barWidth = _visualWorldHeight * 0.95f;
+            _barHeight = Mathf.Max(0.13f, _visualWorldHeight * 0.15f);
+            float gap = _visualWorldHeight * 0.07f;                        // 머리와 바 사이 여백(작을수록 머리에 붙는다)
+            float centerY = _visualWorldHeight * 0.5f + gap + _barHeight * 0.5f;
+
+            float parent = Mathf.Abs(transform.localScale.x) < 1e-5f ? 1f : transform.localScale.x;
+            float inv = 1f / parent;
+            _hpBarRoot.localScale = new Vector3(inv, inv, 1f);
+            _hpBarRoot.localPosition = new Vector3(0f, centerY * inv, 0f);
+
+            // 배경은 바보다 살짝 크게 만들어 테두리처럼 보이게 한다(밝은 배경에서도 구분되도록).
+            float unit = BarSprite.bounds.size.x;
+            float border = _barHeight * 0.30f;
+            _hpBarBgTf.localScale = new Vector3((_barWidth + border) / unit, (_barHeight + border) / unit, 1f);
+            _hpBarBgTf.localPosition = Vector3.zero;
+
+            RefreshHpBar();
+        }
+
+        /// <summary>남은 체력에 맞춰 채움 막대의 길이와 색을 갱신한다.
+        /// [해설] 예전에는 localScale.x만 줄여서 막대가 <b>가운데로 모이며</b> 작아졌다(양쪽이 같이
+        /// 줄어듦). 이제는 왼쪽 끝을 고정하고 오른쪽부터 줄어들도록 위치도 함께 옮긴다.
+        /// 색도 남은 비율에 따라 초록 → 노랑 → 빨강으로 바뀌어서 위험한 적이 한눈에 보인다.</summary>
+        private void RefreshHpBar()
+        {
+            if (_hpFillTf == null) return;
+
+            float ratio = MaxHP > 0f ? Mathf.Clamp01(HP / MaxHP) : 0f;
+            float unit = BarSprite.bounds.size.x;
+            float w = _barWidth * ratio;
+
+            _hpFillTf.localScale = new Vector3(w / unit, _barHeight / unit, 1f);
+            _hpFillTf.localPosition = new Vector3(-_barWidth * 0.5f + w * 0.5f, 0f, -0.01f);
+            _hpFillSr.color = ratio > 0.5f ? new Color(0.36f, 0.86f, 0.40f)
+                            : ratio > 0.25f ? new Color(0.96f, 0.78f, 0.26f)
+                                            : new Color(0.93f, 0.28f, 0.24f);
         }
 
         /// <summary>실제 아트 스프라이트를 적용하고, 지정한 월드 높이에 맞춰 스케일을 보정한다.
@@ -119,6 +194,10 @@ namespace Defense2D
             _sr.color = Color.white;
             float scale = desiredWorldHeight / art.bounds.size.y;
             transform.localScale = new Vector3(scale, scale, 1f);
+
+            // 몸 크기가 바뀌었으므로 체력바 위치/크기도 다시 맞춘다(보스가 이 경로를 탄다).
+            _visualWorldHeight = desiredWorldHeight;
+            LayoutHpBar();
         }
 
         public void ApplySlow(float factor, float duration)
@@ -146,8 +225,7 @@ namespace Defense2D
                 amount *= (1f - ShieldTowerDamageReduction);
 
             HP -= amount;
-            if (_hpFillTf != null)
-                _hpFillTf.localScale = new Vector3(0.86f * Mathf.Clamp01(HP / MaxHP), 0.09f, 1f);
+            RefreshHpBar();
 
             if (HP <= 0f) Die();
         }
