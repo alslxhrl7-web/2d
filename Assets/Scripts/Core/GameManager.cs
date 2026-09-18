@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace Defense2D
 {
@@ -26,6 +27,14 @@ namespace Defense2D
         /// <summary>아직 1골드가 되지 못하고 쌓여 있는 처치 보상의 소수점 부분 (AddGold 참고).</summary>
         private float _goldFraction;
 
+        /// <summary>일시정지 중인지. 일시정지는 Time.timeScale을 0으로 만드는 방식이라
+        /// 적 이동·타워 발사·스폰 코루틴·스킵/제한시간 카운트다운이 모두 함께 멈춘다
+        /// (SetPaused 주석 참고).</summary>
+        public bool IsPaused { get; private set; }
+
+        /// <summary>게임이 이미 끝난 상태(게임오버/승리)에서는 일시정지를 걸 수 없다.</summary>
+        private bool CanPause => State != GameState.GameOver && State != GameState.Victory;
+
         private void Awake()
         {
             Gold = GameConstants.StartingGold;
@@ -38,17 +47,70 @@ namespace Defense2D
 
         private void Update()
         {
-            if (_incomeSuppressTimer > 0f) _incomeSuppressTimer -= Time.deltaTime;
+            // [해설] 일시정지 입력은 여기 한 곳에서만 처리한다. ESC는 "배치/철거 모드 취소"와
+            // 의미가 겹치는데, BuildManager와 GameManager가 각자 같은 프레임에 ESC를 보면
+            // 어느 쪽이 먼저 도느냐에 따라 동작이 달라지는 경합이 생긴다. 그래서 ESC 판정을
+            // 통째로 이쪽으로 모으고, 배치/철거 중일 때만 BuildManager에 취소를 지시한다.
+            HandlePauseInput();
 
-            if (State == GameState.Prep)
+            // Time.timeScale이 0이면 아래 deltaTime 계산은 어차피 0이라 멈추지만, 의도를
+            // 분명히 하려고 일시정지 중에는 게임 로직 갱신을 아예 건너뛴다.
+            // (Update 자체는 timeScale과 무관하게 계속 돌기 때문에 UI 버튼은 정상 동작한다.)
+            if (!IsPaused)
             {
-                _prepTimer -= Time.deltaTime;
-                UI.SetPrepCountdown(Mathf.Max(0f, _prepTimer));
-                if (_prepTimer <= 0f) StartDefense();
+                if (_incomeSuppressTimer > 0f) _incomeSuppressTimer -= Time.deltaTime;
+
+                if (State == GameState.Prep)
+                {
+                    _prepTimer -= Time.deltaTime;
+                    UI.SetPrepCountdown(Mathf.Max(0f, _prepTimer));
+                    if (_prepTimer <= 0f) StartDefense();
+                }
+
+                if (Waves != null) UI.RefreshAliveCount(Waves.AliveEnemies);
             }
 
-            if (Waves != null) UI.RefreshAliveCount(Waves.AliveEnemies);
             UI.RefreshActionButton();
+        }
+
+        private void HandlePauseInput()
+        {
+            var kb = Keyboard.current;
+            if (kb == null) return;
+
+            // P는 언제나 일시정지 토글.
+            if (kb.pKey.wasPressedThisFrame) TogglePause();
+
+            if (!kb.escapeKey.wasPressedThisFrame) return;
+
+            // ESC: 타워를 놓는 중/철거하는 중이면 그 모드를 먼저 취소하고, 그게 아니면 일시정지.
+            if (!IsPaused && Build != null && Build.HasActiveMode) Build.CancelMode();
+            else TogglePause();
+        }
+
+        public void TogglePause() => SetPaused(!IsPaused);
+
+        /// <summary>
+        /// 일시정지를 켜고 끈다.
+        /// [해설] Time.timeScale = 0으로 게임 시간을 통째로 멈춘다. 이 게임은 적 이동·타워 쿨타임·
+        /// 이펙트가 전부 Time.deltaTime 기반이고, 스폰 코루틴은 WaitForSeconds, 스킵/피날레
+        /// 제한시간은 Time.time 기준이라 — 이 값들이 전부 스케일된 시간이므로 timeScale 하나로
+        /// 한꺼번에 얼어붙는다. 별도로 멈춰줘야 하는 것이 없다.
+        /// 주의: timeScale은 씬을 다시 불러와도 되돌아오지 않는 전역 값이라, 일시정지 상태에서
+        /// "다시 시작"을 누르면 새 게임이 멈춘 채로 시작된다. 그래서 GameBootstrapper가 게임을
+        /// 조립할 때마다 1로 되돌린다(ResetStaticState 참고).
+        /// </summary>
+        public void SetPaused(bool paused)
+        {
+            if (paused && !CanPause) return;
+            if (IsPaused == paused) return;
+
+            IsPaused = paused;
+            Time.timeScale = paused ? 0f : 1f;
+
+            // 일시정지 중에 타워를 놓거나 철거하지 못하게 한다(무한 계획 시간 방지).
+            if (paused && Build != null) Build.CancelMode();
+            UI.ShowPausePanel(paused);
         }
 
         public void EnterPrep()
@@ -197,6 +259,9 @@ namespace Defense2D
 
         private void GameOver(string reason)
         {
+            // 일시정지 상태에서 패배 판정이 날 일은 없지만(시간이 멈춰 있으니), 혹시라도 멈춘 채로
+            // 종료 화면에 들어가면 버튼만 살아있고 화면이 얼어붙은 이상한 상태가 되므로 풀어준다.
+            SetPaused(false);
             State = GameState.GameOver;
             Waves.StopAllCoroutines();
             if (Build != null) Build.enabled = false;
@@ -205,6 +270,7 @@ namespace Defense2D
 
         private void Victory()
         {
+            SetPaused(false);
             State = GameState.Victory;
             if (Build != null) Build.enabled = false;
             UI.ShowVictory();

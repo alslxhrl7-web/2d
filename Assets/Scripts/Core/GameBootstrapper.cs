@@ -60,6 +60,10 @@ namespace Defense2D
         /// </summary>
         private static void ResetStaticState()
         {
+            // [해설] Time.timeScale은 씬을 다시 불러와도 되돌아오지 않는 전역 값이다. 일시정지
+            // (timeScale=0) 상태에서 "다시 시작"을 누르면 새 게임이 얼어붙은 채로 시작되므로,
+            // 조립할 때마다 반드시 정상 속도로 되돌린다.
+            Time.timeScale = 1f;
             TowerBase.GlobalDamageMultiplier = 1f;
             TowerBase.Active.Clear();
             EnemyController.Active.Clear();

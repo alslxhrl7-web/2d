@@ -40,8 +40,21 @@ namespace Defense2D
         private float _ghostCycleTimer;
         private const float GhostCycleInterval = 0.35f; // [해설] 고스트가 이 간격마다 타입을 다시 굴려서 "무작위" 느낌을 준다.
 
+        /// <summary>지금 타워를 놓는 중이거나 철거하는 중인지. GameManager가 ESC를 "모드 취소"로
+        /// 쓸지 "일시정지"로 쓸지 판단하는 데 쓴다.</summary>
+        public bool HasActiveMode => _placing || _removing;
+
+        /// <summary>배치/철거 모드를 밖에서 취소시킨다(ESC 처리, 일시정지 진입 시 사용).</summary>
+        public void CancelMode() => CancelSelection();
+
         private void Update()
         {
+            // 일시정지 중에는 건설/철거를 아예 막는다. 그렇지 않으면 시간을 멈춰둔 채 원하는 만큼
+            // 타워를 정리할 수 있어서 사실상 무한 계획 시간이 된다.
+            // (ESC/P 같은 일시정지 입력은 GameManager.HandlePauseInput에서 따로 처리하므로
+            //  여기서 일찍 빠져나가도 일시정지를 풀 수 없게 되지는 않는다.)
+            if (Game != null && Game.IsPaused) return;
+
             var kb = Keyboard.current;
             if (kb == null) return;
 
@@ -52,7 +65,9 @@ namespace Defense2D
                 UI.SetBuildMenuOpen(MenuOpen);
             }
 
-            if (kb.escapeKey.wasPressedThisFrame) CancelSelection();
+            // [해설] ESC는 여기서 처리하지 않는다. "모드 취소"와 "일시정지" 둘 다 ESC를 쓰는데
+            // 두 컴포넌트가 같은 프레임에 각자 판정하면 실행 순서에 따라 결과가 달라지므로,
+            // 판정을 GameManager 한 곳으로 모으고 필요할 때 CancelMode()를 불러주도록 했다.
 
             var mouse = Mouse.current;
 

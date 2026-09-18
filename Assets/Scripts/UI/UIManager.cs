@@ -56,6 +56,9 @@ namespace Defense2D
         private GameObject _endPanel;
         private Text _endText;
 
+        private GameObject _pausePanel;
+        private Button _pauseButton;
+
         private static readonly Dictionary<int, string> BossHints = new Dictionary<int, string>
         {
             { 1, "패턴: 직선으로 돌진하고, 돌진 직후 잠시 약점이 노출됩니다." },
@@ -86,6 +89,9 @@ namespace Defense2D
             BuildBanner();
             BuildBossBanner();
             BuildRewardPanel();
+            // 일시정지 패널은 종료 화면보다 먼저 만든다 — uGUI는 나중에 만든 것이 위에 그려지므로,
+            // 게임오버 화면이 일시정지 화면을 덮도록 하려면 이 순서여야 한다.
+            BuildPausePanel();
             BuildEndPanel();
             BuildHintText();
         }
@@ -261,6 +267,62 @@ namespace Defense2D
             _actionLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
             _actionLabel.verticalOverflow = VerticalWrapMode.Overflow;
             _actionButton.gameObject.SetActive(false);
+
+            // [해설] 일시정지 버튼. 키(P/ESC)만 두면 브라우저(WebGL)에서 캔버스에 키보드 포커스가
+            // 없을 때 눌러도 반응이 없어서, 마우스로도 언제든 멈출 수 있게 버튼을 함께 둔다.
+            // 상단 바에서 골드 표기를 걷어내며 비어 있던 오른쪽 끝 자리를 쓴다.
+            _pauseButton = CreateButton("PauseBtn", _canvas.transform, "일시정지 (P)", new Vector2(104, 26),
+                new Vector2(-58, -16), new Vector2(1, 1), new Vector2(1, 1),
+                () => Game.TogglePause(), new Color(0.18f, 0.22f, 0.34f, 0.92f));
+            var pauseLabel = _pauseButton.GetComponentInChildren<Text>();
+            pauseLabel.fontSize = 13;
+            pauseLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            pauseLabel.verticalOverflow = VerticalWrapMode.Overflow;
+        }
+
+        // ---------- 일시정지 ----------
+
+        private void BuildPausePanel()
+        {
+            // 화면 전체를 덮는 패널이라, 뒤쪽 버튼(건설 메뉴 등)이 실수로 눌리는 것도 함께 막아준다.
+            _pausePanel = CreatePanel("PausePanel", _canvas.transform, Vector2.zero, Vector2.one,
+                new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero,
+                new Color(0.02f, 0.03f, 0.06f, 0.82f)).gameObject;
+
+            CreateText("PauseTitle", _pausePanel.transform, "일시정지", 38, Color.white, TextAnchor.MiddleCenter,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(600, 56), new Vector2(0, 86));
+
+            CreateText("PauseHint", _pausePanel.transform, "P 또는 ESC로 계속할 수 있습니다", 16,
+                new Color(1, 1, 1, 0.65f), TextAnchor.MiddleCenter,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(600, 26), new Vector2(0, 42));
+
+            CreateButton("ResumeBtn", _pausePanel.transform, "계속하기", new Vector2(190, 46), new Vector2(0, -10),
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), () => Game.SetPaused(false),
+                new Color(0.2f, 0.5f, 0.28f, 0.95f));
+
+            CreateButton("PauseRestartBtn", _pausePanel.transform, "처음부터 다시", new Vector2(190, 40),
+                new Vector2(0, -66), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), RestartGame,
+                new Color(0.2f, 0.26f, 0.4f, 0.95f));
+
+            // 브라우저에서는 Application.Quit()이 아무것도 못 하므로 종료 버튼을 만들지 않는다
+            // (종료 화면의 처리와 같은 이유 — BuildEndPanel 주석 참고).
+            if (Application.platform != RuntimePlatform.WebGLPlayer)
+            {
+                CreateButton("PauseQuitBtn", _pausePanel.transform, "게임 종료", new Vector2(190, 40),
+                    new Vector2(0, -114), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Application.Quit,
+                    new Color(0.34f, 0.22f, 0.24f, 0.95f));
+            }
+
+            _pausePanel.SetActive(false);
+        }
+
+        /// <summary>GameManager.SetPaused()가 호출한다. 패널을 띄우고, 상단 일시정지 버튼의
+        /// 문구를 현재 상태에 맞게 바꾼다.</summary>
+        public void ShowPausePanel(bool paused)
+        {
+            if (_pausePanel != null) _pausePanel.SetActive(paused);
+            if (_pauseButton != null)
+                _pauseButton.GetComponentInChildren<Text>().text = paused ? "계속하기 (P)" : "일시정지 (P)";
         }
 
         private void OnActionButtonClicked()
@@ -283,6 +345,18 @@ namespace Defense2D
         public void RefreshActionButton()
         {
             if (_actionButton == null || Game == null) return;
+
+            // 게임이 끝난 뒤에는 멈출 것이 없으므로 일시정지 버튼을 숨긴다.
+            bool over = Game.State == GameState.GameOver || Game.State == GameState.Victory;
+            if (_pauseButton != null) _pauseButton.gameObject.SetActive(!over);
+
+            // 일시정지 중에는 "웨이브 시작/스킵" 버튼을 눌러 진행시킬 수 없어야 한다.
+            if (Game.IsPaused)
+            {
+                _actionButton.gameObject.SetActive(false);
+                _actionMode = ActionMode.None;
+                return;
+            }
 
             if (Game.State == GameState.Prep)
             {
@@ -347,7 +421,7 @@ namespace Defense2D
 
         private void BuildHintText()
         {
-            CreateText("Hint", _canvas.transform, "TAB 건설 메뉴 · 클릭으로 타워 배치/철거 · 우클릭·ESC 취소",
+            CreateText("Hint", _canvas.transform, "TAB 건설 메뉴 · 클릭으로 타워 배치/철거 · 우클릭·ESC 취소 · P 일시정지",
                 14, new Color(1, 1, 1, 0.7f), TextAnchor.MiddleCenter, new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 new Vector2(700, 24), new Vector2(0, 8));
         }

@@ -35,6 +35,19 @@ namespace Defense2D.EditorTools
         private const int ItchViewportWidth = 1280;
         private const int ItchViewportHeight = 720;
 
+        /// <summary>
+        /// WebGL 빌드를 압축할지 여부. <b>여기 한 줄만 바꾸면 된다.</b>
+        ///
+        /// false(기본): 무압축. 어떤 서버 설정에서도 확실히 실행되지만 내려받는 용량이 크다.
+        ///              (실측: .wasm 37MB + .data 29MB = 약 65MB를 브라우저가 받아야 함)
+        /// true:        Brotli + Decompression Fallback. 받는 용량이 1/3~1/4로 줄어 첫 로딩이
+        ///              훨씬 빠르다. Fallback을 함께 켜므로 서버가 Content-Encoding 헤더를
+        ///              안 붙여줘도 브라우저가 스스로 풀 수 있어 itch.io에서도 대체로 잘 된다.
+        ///              다만 환경에 따라 실패 사례가 보고되므로, 바꾼 뒤에는 반드시 itch.io에
+        ///              올려서 실제로 뜨는지 확인할 것.
+        /// </summary>
+        private const bool UseWebGlCompression = false;
+
         [MenuItem("Defense2D/Windows 실행 파일 빌드", false, 10)]
         public static void BuildWindows()
         {
@@ -205,21 +218,34 @@ namespace Defense2D.EditorTools
         }
 
         /// <summary>
-        /// [해설] itch.io에서 Unity WebGL이 실패하는 가장 흔한 원인이 <b>압축 형식</b>이다.
-        /// Brotli/Gzip으로 빌드하면 브라우저가 "decompression fallback" 에러를 내며 안 뜨는 경우가
-        /// 많아서, 용량이 조금 커지더라도 압축을 끄는 쪽이 확실하다. 나중에 용량을 줄이고 싶으면
-        /// Project Settings > Player > Publishing Settings에서 Brotli + Decompression Fallback을
-        /// 켜는 조합을 시도해 볼 수 있다.
+        /// [해설] itch.io에서 Unity WebGL이 안 뜨는 가장 흔한 원인이 <b>압축 형식</b>이라, 기본값은
+        /// "확실히 뜨는" 무압축이다. 다만 무압축은 브라우저가 받아야 할 용량이 그대로 나가므로
+        /// (실측 약 65MB) 첫 로딩이 느리다. 용량을 줄이고 싶으면 위의 UseWebGlCompression을
+        /// true로 바꾸면 Brotli + Decompression Fallback 조합으로 빌드된다.
         /// </summary>
         private static void ApplyWebGlSettings()
         {
-            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
+            if (UseWebGlCompression)
+            {
+                PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
+                // 서버가 Content-Encoding 헤더를 안 붙여줘도 브라우저가 직접 풀 수 있게 한다.
+                // 이게 꺼져 있으면 itch.io에서 "decompression fallback" 에러로 아예 안 뜬다.
+                PlayerSettings.WebGL.decompressionFallback = true;
+            }
+            else
+            {
+                PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
+                PlayerSettings.WebGL.decompressionFallback = false;
+            }
+
             PlayerSettings.WebGL.dataCaching = true;   // 재방문 시 다시 받지 않도록
             PlayerSettings.runInBackground = true;
             PlayerSettings.defaultWebScreenWidth = ItchViewportWidth;
             PlayerSettings.defaultWebScreenHeight = ItchViewportHeight;
 
-            Debug.Log($"[빌드] WebGL 설정: 압축 끔(itch.io 호환), 캔버스 {ItchViewportWidth}x{ItchViewportHeight}.");
+            Debug.Log($"[빌드] WebGL 설정: 압축 {(UseWebGlCompression ? "Brotli + Fallback" : "끔")}, " +
+                      $"캔버스 {ItchViewportWidth}x{ItchViewportHeight}. " +
+                      "(압축 전환은 BuildScript.cs의 UseWebGlCompression 상수 한 줄)");
         }
 
         [MenuItem("Defense2D/빌드 폴더 열기", false, 20)]
