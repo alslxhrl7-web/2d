@@ -162,7 +162,14 @@ namespace Defense2D
             rsr.sortingOrder = 19;
         }
 
-        private static TowerType RandomTowerType() => (TowerType)Random.Range(0, 3);
+        /// <summary>[해설] 예전에는 Random.Range(0, 3)으로 "3"이 하드코딩돼 있어서, TowerType에
+        /// 값을 추가해도 새 타워가 영원히 뽑히지 않는 함정이 있었다(번개탑을 넣으면서 실제로 걸렸다).
+        /// 이제 enum 길이를 기준으로 굴리므로 타워를 추가하면 자동으로 후보에 들어간다.
+        /// Enum.GetValues는 호출할 때마다 배열을 새로 만들기 때문에, 매 프레임 도는 미리보기
+        /// 갱신에서 쓰지 않도록 값을 static readonly로 한 번만 계산해 둔다.</summary>
+        private static readonly int TowerTypeCount = System.Enum.GetValues(typeof(TowerType)).Length;
+
+        private static TowerType RandomTowerType() => (TowerType)Random.Range(0, TowerTypeCount);
 
         private Vector3 MouseWorld()
         {
@@ -203,6 +210,7 @@ namespace Defense2D
             TowerType.Arrow => 3.2f,
             TowerType.Ice => 2.6f,
             TowerType.Cannon => 3.3f, // CannonTower.Setup()의 실제 Range와 일치시킴(2.9 → 3.3)
+            TowerType.Lightning => 3.0f, // LightningTower.Setup()의 Range와 일치
             _ => 2.5f
         };
 
@@ -287,7 +295,12 @@ namespace Defense2D
         /// <summary>강조해 둔 타워의 색을 원래대로 돌려놓고 사거리 링을 숨긴다.</summary>
         private void ClearRemoveHover()
         {
-            if (_hoverSr != null) _hoverSr.color = _hoverOriginalColor;
+            if (_hoverSr != null)
+            {
+                // 호버 시작 시점에 찍어둔 색이 아니라 타워의 기본색으로 되돌린다(위 SpawnTower 해설 참고).
+                var hoverTb = _hoverSr.GetComponent<TowerBase>();
+                _hoverSr.color = hoverTb != null ? hoverTb.BaseColor : _hoverOriginalColor;
+            }
             _hoverSr = null;
             if (_rangeGhost != null && !_placing) _rangeGhost.SetActive(false);
         }
@@ -319,6 +332,7 @@ namespace Defense2D
             TowerType.Arrow => "화살탑",
             TowerType.Ice => "빙결탑",
             TowerType.Cannon => "포격탑",
+            TowerType.Lightning => "번개탑",
             _ => "타워"
         };
 
@@ -327,7 +341,7 @@ namespace Defense2D
         /// <summary>
         /// 실제로 설치되는 타워와, 배치 전 미리보기(고스트)가 항상 같은 아트/크기를 쓰도록
         /// 스프라이트 지정 로직을 한 곳에 모았다. Resources/Sprites/Tower_Arrow.png,
-        /// Tower_Ice.png, Tower_Cannon.png가 있으면 그 아트를 쓰고, 없으면 도형으로 대체한다.
+        /// Tower_Ice.png, Tower_Cannon.png, Tower_Lightning.png가 있으면 그 아트를 쓰고, 없으면 도형으로 대체한다.
         /// </summary>
         private void ApplyTowerVisual(SpriteRenderer sr, Transform t, TowerType type)
         {
@@ -346,10 +360,17 @@ namespace Defense2D
                     TowerType.Arrow => new Color(0.24f, 0.4f, 0.78f),
                     TowerType.Ice => new Color(0.35f, 0.85f, 0.92f),
                     TowerType.Cannon => new Color(0.95f, 0.58f, 0.28f),
+                    TowerType.Lightning => new Color(0.98f, 0.88f, 0.3f), // 번개 = 노랑
                     _ => Color.white
                 };
-                sr.sprite = SpriteFactory.Triangle(fill, Color.white);
-                t.localScale = Vector3.one;
+                // [해설] ★ 크기 버그 수정. 예전에는 여기서 localScale을 1로 두었는데, Triangle은
+                // 64px/PPU 32 = 2.0유닛이라 아트가 있는 타워(TowerArtWorldHeight = 1.5유닛)보다
+                // 33% 크게 그려졌다. 아트가 아직 없는 번개탑만 유독 거대해 보이고 배치 고스트의
+                // 크기도 다른 타워와 달라지므로, 대체 도형도 같은 높이로 맞춘다.
+                var shape = SpriteFactory.Triangle(fill, Color.white);
+                sr.sprite = shape;
+                float shapeScale = TowerArtWorldHeight / shape.bounds.size.y;
+                t.localScale = new Vector3(shapeScale, shapeScale, 1f);
             }
         }
 
@@ -366,7 +387,15 @@ namespace Defense2D
                 case TowerType.Arrow: go.AddComponent<ArrowTower>().Setup(); break;
                 case TowerType.Ice: go.AddComponent<IceTower>().Setup(); break;
                 case TowerType.Cannon: go.AddComponent<CannonTower>().Setup(); break;
+                case TowerType.Lightning: go.AddComponent<LightningTower>().Setup(); break;
             }
+
+            // [해설] ★ 색 복원 버그 수정. 철거 호버(빨강)와 보스의 무력화(회색)가 겹치면,
+            // 나중에 끝난 쪽이 "자기가 시작할 때 본 색"을 되돌려 써서 타워가 영구히 빨갛거나
+            // 회색으로 굳는 일이 있었다. 이제 원래 색의 출처를 TowerBase.BaseColor 하나로
+            // 정하고, 강조/무력화가 끝나면 둘 다 무조건 이 색으로 되돌린다.
+            var placed = go.GetComponent<TowerBase>();
+            if (placed != null) placed.BaseColor = sr.color;
 
             _towers.Add(go);
         }

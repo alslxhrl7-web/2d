@@ -395,7 +395,7 @@ namespace Defense2D
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(200, 24), new Vector2(0, -16));
 
             CreateText("BuildInfo", _buildPanel.transform,
-                $"화살탑/빙결탑 {GameConstants.TowerCost} · 포격탑 {GameConstants.CannonTowerCost}\n설치 시 타입이 무작위로 결정됩니다\n철거하면 건설비의 {GameConstants.TowerRefundPercent}%를 돌려받습니다",
+                $"화살탑/빙결탑 {GameConstants.TowerCost} · 번개탑 {GameConstants.LightningTowerCost} · 포격탑 {GameConstants.CannonTowerCost}\n설치 시 타입이 무작위로 결정됩니다\n철거하면 건설비의 {GameConstants.TowerRefundPercent}%를 돌려받습니다",
                 12, new Color(1, 1, 1, 0.75f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
                 new Vector2(204, 54), new Vector2(0, -62));
 

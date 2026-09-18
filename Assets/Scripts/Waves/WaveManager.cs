@@ -394,6 +394,24 @@ namespace Defense2D
 
         /// <summary>웨이브 보상(AliveCapacity)으로 "동시 생존 허용 한도"를 늘린다.
         /// 거점 최대 체력 업그레이드를 대신하는 성격의 보상이라, 곱연산(배율)으로 늘어난다.</summary>
+        /// <summary>
+        /// 게임이 끝났을 때(패배/승리) 웨이브 진행 상태를 완전히 닫는다.
+        /// [해설] ★ 버그 수정. 예전에는 GameOver가 StopAllCoroutines만 부르고 WaveInProgress는
+        /// true로 남겨 뒀다. StopAllCoroutines를 스폰 코루틴 <b>안에서</b> 부르면 그 프레임의
+        /// MoveNext는 끝까지 실행되므로, 마지막 스폰에서 패배가 나면 _allSpawned가 true가 된다.
+        /// 그 뒤 살아남은 타워가 남은 적을 정리하면 CheckWaveClear의 조건
+        /// (_allSpawned &amp;&amp; AliveEnemies &lt;= 0 &amp;&amp; WaveInProgress)이 그대로 성립해서,
+        /// <b>게임오버 화면 뒤에서 웨이브 클리어 처리가 한 번 더 돌고</b> 보상 패널까지 떴다
+        /// (마지막 스테이지 피날레였다면 패배 문구가 승리 문구로 덮이기까지 했다).
+        /// WaveInProgress를 여기서 확실히 내려서 그 경로를 막는다.
+        /// </summary>
+        public void HaltForGameEnd()
+        {
+            StopAllCoroutines();
+            WaveInProgress = false;
+            _isStageFinale = false;
+        }
+
         public void IncreaseAliveCapacity(float multiplier)
         {
             _maxAliveCapacity = Mathf.Max(_maxAliveCapacity + 1, Mathf.RoundToInt(_maxAliveCapacity * multiplier));

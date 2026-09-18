@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -275,14 +276,36 @@ namespace Defense2D
             UI.ShowBanner($"업그레이드 적용: {opt.Label}");
         }
 
+        /// <summary>
+        /// 게임이 끝난 뒤에도 돌아가던 적/타워의 Update를 멈춘다.
+        /// [해설] ★ 버그 수정. 예전에는 종료 화면을 띄운 뒤에도 세상이 그대로 돌아갔다.
+        /// 적은 닫힌 루프를 영원히 돌고, 타워는 계속 쏘고, 보스는 능력을 계속 써서 소환·골드
+        /// 약탈·배너가 종료 화면 뒤에서 무한히 반복됐다. 플레이어는 멈출 수도 없다 — 종료
+        /// 상태에서는 일시정지 버튼이 숨겨지고 CanPause도 false이기 때문이다. 화면이 거의
+        /// 불투명한 패널로 덮여 있어 눈에는 안 보이지만, CPU는 계속 타고 있었다.
+        ///
+        /// Time.timeScale을 0으로 만들지 않은 이유: 종료 패널의 연출과 배너가 모두 스케일된
+        /// 시간을 쓰기 때문에 같이 얼어붙는다. 그래서 시간이 아니라 "배우"만 멈춘다.
+        /// enabled = false는 OnDisable → Active.Remove를 부르므로, 순회 중에 목록이 바뀌지
+        /// 않도록 반드시 복사본을 돌아야 한다.
+        /// </summary>
+        private static void HaltActors()
+        {
+            foreach (var t in new List<TowerBase>(TowerBase.Active))
+                if (t != null) t.enabled = false;
+            foreach (var e in new List<EnemyController>(EnemyController.Active))
+                if (e != null) e.enabled = false;
+        }
+
         private void GameOver(string reason)
         {
             // 일시정지 상태에서 패배 판정이 날 일은 없지만(시간이 멈춰 있으니), 혹시라도 멈춘 채로
             // 종료 화면에 들어가면 버튼만 살아있고 화면이 얼어붙은 이상한 상태가 되므로 풀어준다.
             SetPaused(false);
             State = GameState.GameOver;
-            Waves.StopAllCoroutines();
+            Waves.HaltForGameEnd();
             if (Build != null) Build.enabled = false;
+            HaltActors();
             UI.ShowGameOver(Waves.StageNumber, Waves.LocalWave, reason);
         }
 
@@ -290,7 +313,9 @@ namespace Defense2D
         {
             SetPaused(false);
             State = GameState.Victory;
+            Waves.HaltForGameEnd();
             if (Build != null) Build.enabled = false;
+            HaltActors();
             UI.ShowVictory();
         }
     }

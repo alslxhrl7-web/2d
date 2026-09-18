@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Defense2D
@@ -9,6 +10,34 @@ namespace Defense2D
     /// </summary>
     public static class SpriteFactory
     {
+        /// <summary>
+        /// [해설] ★ 성능 수정. 이 클래스의 모든 메서드는 호출될 때마다 Texture2D를 새로 만들고
+        /// 픽셀을 하나씩 찍은 뒤 Apply()로 GPU에 올린다. 그런데 호출부 중에는 <b>발사할 때마다</b>
+        /// 부르는 곳이 있었다 — Projectile.Init의 화살/포탄/원 스프라이트, ImpactEffect의 착탄
+        /// 연출 2장, 배치 고스트가 0.35초마다 다시 굴리는 삼각형. 타워 10개가 깔린 중반이면
+        /// 초당 20장 넘는 텍스처가 새로 생기고, 아무도 파괴하지 않으니 씬을 다시 불러올 때까지
+        /// 계속 쌓였다(메모리 증가 + GC 끊김).
+        ///
+        /// 실제로는 같은 인자로 부르면 항상 같은 그림이 나오므로, 인자를 키로 한 번 만든 것을
+        /// 재사용한다. 색/크기가 다르면 키가 달라져 각각 따로 캐시된다.
+        ///
+        /// 주의: 씬을 다시 불러오면 Unity가 참조되지 않는 에셋을 정리하면서 캐시해 둔 Sprite를
+        /// 파괴할 수 있다. 그래서 꺼낼 때 반드시 null 검사를 한다 — 파괴된 UnityEngine.Object는
+        /// == null이 true가 되므로, 이 검사만으로 "파괴됐으면 다시 만든다"가 성립한다.
+        /// (그래서 GameBootstrapper.ResetStaticState에서 이 캐시를 따로 비울 필요가 없다.)
+        /// </summary>
+        private static readonly Dictionary<string, Sprite> Cache = new Dictionary<string, Sprite>();
+
+        private static Sprite Cached(string key, System.Func<Sprite> build)
+        {
+            if (Cache.TryGetValue(key, out var cached) && cached != null) return cached;
+            var made = build();
+            Cache[key] = made;
+            return made;
+        }
+
+        private static string K(Color c) => $"{c.r:F3},{c.g:F3},{c.b:F3},{c.a:F3}";
+
         private static Sprite MakeSprite(Texture2D tex, float pixelsPerUnit = 32f)
         {
             tex.filterMode = FilterMode.Bilinear;
@@ -17,7 +46,7 @@ namespace Defense2D
             return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), pixelsPerUnit);
         }
 
-        public static Sprite Circle(Color fill, Color outline, int size = 64)
+        private static Sprite BuildCircle(Color fill, Color outline, int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             Vector2 c = new Vector2(size / 2f, size / 2f);
@@ -34,7 +63,7 @@ namespace Defense2D
             return MakeSprite(tex);
         }
 
-        public static Sprite Triangle(Color fill, Color outline, int size = 64)
+        private static Sprite BuildTriangle(Color fill, Color outline, int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             Vector2 p0 = new Vector2(size / 2f, size - 4);
@@ -51,7 +80,7 @@ namespace Defense2D
             return MakeSprite(tex);
         }
 
-        public static Sprite Square(Color fill, Color outline, int size = 64)
+        private static Sprite BuildSquare(Color fill, Color outline, int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             for (int y = 0; y < size; y++)
@@ -63,7 +92,7 @@ namespace Defense2D
             return MakeSprite(tex);
         }
 
-        public static Sprite Capsule(Color fill, Color outline, int w = 48, int h = 64)
+        private static Sprite BuildCapsule(Color fill, Color outline, int w, int h)
         {
             var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
             float r = w / 2f - 1f;
@@ -83,7 +112,7 @@ namespace Defense2D
             return MakeSprite(tex);
         }
 
-        public static Sprite Diamond(Color fill, Color outline, int size = 64)
+        private static Sprite BuildDiamond(Color fill, Color outline, int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             Vector2 c = new Vector2(size / 2f, size / 2f);
@@ -105,7 +134,7 @@ namespace Defense2D
         /// transform.up을 진행 방향으로 맞춰 회전시키므로, 이 스프라이트는 "위로 날아가는" 형태로
         /// 만들어 두면 어느 방향으로 날아가든 항상 촉이 진행 방향을 향하게 된다.
         /// </summary>
-        public static Sprite Arrow(Color fill, Color outline, int w = 28, int h = 64)
+        private static Sprite BuildArrow(Color fill, Color outline, int w, int h)
         {
             var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
             for (int y = 0; y < h; y++)
@@ -158,7 +187,7 @@ namespace Defense2D
         /// 바꿨다. 그냥 단색 원과 구분되도록 좌상단에 옅은 하이라이트를 넣어 둥근 쇠구슬 같은
         /// 입체감을 주고, 배경(어두운 도로/필드)과 구분되도록 옅은 회색 테두리를 둘렀다.
         /// </summary>
-        public static Sprite Cannonball(int size = 48)
+        private static Sprite BuildCannonball(int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             Color fill = new Color(0.07f, 0.07f, 0.08f);
@@ -197,7 +226,7 @@ namespace Defense2D
         /// 이펙트의 "빛 번짐" 표현에 훨씬 깔끔하게 어울린다. size=64 기준 scale 1일 때 반지름이
         /// 1유닛이 되도록 맞춰서, 기존 Circle 기반 이펙트와 동일한 방식(반지름=scale)으로 쓸 수 있다.
         /// </summary>
-        public static Sprite SoftGlow(Color color, int size = 64)
+        private static Sprite BuildSoftGlow(Color color, int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             Vector2 c = new Vector2(size / 2f, size / 2f);
@@ -221,7 +250,7 @@ namespace Defense2D
         /// smoothstep 감쇠를 줘서 안팎 경계가 부드럽게 사라지므로 폭발 충격파에 더 잘 어울린다.
         /// size=64 기준 scale 1일 때 반지름이 1유닛이 되도록 맞췄다(SoftGlow와 동일 규칙).
         /// </summary>
-        public static Sprite SoftRing(Color color, int size = 64, float thickness = 6f)
+        private static Sprite BuildSoftRing(Color color, int size, float thickness)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             Vector2 c = new Vector2(size / 2f, size / 2f);
@@ -241,7 +270,7 @@ namespace Defense2D
             return MakeSprite(tex);
         }
 
-        public static Sprite Ring(Color color, int size = 96, float thickness = 3f)
+        private static Sprite BuildRing(Color color, int size, float thickness)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             Vector2 c = new Vector2(size / 2f, size / 2f);
@@ -256,7 +285,7 @@ namespace Defense2D
             return MakeSprite(tex);
         }
 
-        public static Sprite SolidSquare(Color color, int size = 8)
+        private static Sprite BuildSolidSquare(Color color, int size)
         {
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             for (int y = 0; y < size; y++)
@@ -264,6 +293,40 @@ namespace Defense2D
                     tex.SetPixel(x, y, color);
             return MakeSprite(tex, 8f);
         }
+
+        // ---------- 캐시를 타는 공개 진입점 (실제 생성은 위의 Build* 가 한다) ----------
+        public static Sprite Circle(Color fill, Color outline, int size = 64) =>
+            Cached($"Circle|{K(fill)}|{K(outline)}|{size}", () => BuildCircle(fill, outline, size));
+
+        public static Sprite Triangle(Color fill, Color outline, int size = 64) =>
+            Cached($"Triangle|{K(fill)}|{K(outline)}|{size}", () => BuildTriangle(fill, outline, size));
+
+        public static Sprite Square(Color fill, Color outline, int size = 64) =>
+            Cached($"Square|{K(fill)}|{K(outline)}|{size}", () => BuildSquare(fill, outline, size));
+
+        public static Sprite Capsule(Color fill, Color outline, int w = 48, int h = 64) =>
+            Cached($"Capsule|{K(fill)}|{K(outline)}|{w}x{h}", () => BuildCapsule(fill, outline, w, h));
+
+        public static Sprite Diamond(Color fill, Color outline, int size = 64) =>
+            Cached($"Diamond|{K(fill)}|{K(outline)}|{size}", () => BuildDiamond(fill, outline, size));
+
+        public static Sprite Arrow(Color fill, Color outline, int w = 28, int h = 64) =>
+            Cached($"Arrow|{K(fill)}|{K(outline)}|{w}x{h}", () => BuildArrow(fill, outline, w, h));
+
+        public static Sprite Cannonball(int size = 48) =>
+            Cached($"Cannonball|{size}", () => BuildCannonball(size));
+
+        public static Sprite SoftGlow(Color color, int size = 64) =>
+            Cached($"SoftGlow|{K(color)}|{size}", () => BuildSoftGlow(color, size));
+
+        public static Sprite SoftRing(Color color, int size = 64, float thickness = 6f) =>
+            Cached($"SoftRing|{K(color)}|{size}|{thickness}", () => BuildSoftRing(color, size, thickness));
+
+        public static Sprite Ring(Color color, int size = 96, float thickness = 3f) =>
+            Cached($"Ring|{K(color)}|{size}|{thickness}", () => BuildRing(color, size, thickness));
+
+        public static Sprite SolidSquare(Color color, int size = 8) =>
+            Cached($"SolidSquare|{K(color)}|{size}", () => BuildSolidSquare(color, size));
 
         private static bool PointInTriangle(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
         {

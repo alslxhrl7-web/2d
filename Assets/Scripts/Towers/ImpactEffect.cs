@@ -7,6 +7,8 @@ namespace Defense2D
     /// Projectile.Init()의 impactEffect 인자로 고르는 명중 연출 종류.
     /// FrostZone: 빙결탑이 착탄 지점에 남기는 서리 장판(애니비아 장판 모션 참고).
     /// Explosion: 포격탑이 맞으면 터지는 순간 폭발 이펙트.
+    /// (번개탑의 번개 줄기는 투사체를 쓰지 않으므로 이 enum이 아니라
+    ///  ImpactEffect.SpawnLightningBolt를 LightningTower가 직접 호출한다.)
     /// </summary>
     public enum ImpactEffectKind { None, FrostZone, Explosion }
 
@@ -64,6 +66,94 @@ namespace Defense2D
             ring.transform.localScale = Vector3.zero;
 
             EffectRunner.Run(go, ExplosionBurst(go.transform, flash, ring, radius));
+        }
+
+        /// <summary>번개탑의 번개 줄기를 from에서 to까지 지그재그로 그린다(순수 연출).
+        ///
+        /// [해설] LineRenderer를 쓰지 않았다. LineRenderer는 머티리얼이 필요하고 URP에서
+        /// Shader.Find로 셰이더를 찾아야 하는데, 빌드에 그 셰이더가 포함되지 않으면 런타임에만
+        /// 분홍색으로 깨지는 종류의 사고가 난다. 대신 이미 이 프로젝트 전체에서 검증된
+        /// SpriteRenderer + SpriteFactory.SolidSquare 조합으로, 얇고 긴 사각형 여러 개를 이어
+        /// 붙여 번개를 만든다. 셰이더를 찾을 일도, 머티리얼을 만들 일도 없다.
+        ///
+        /// 스프라이트는 한 번 만들어 static으로 캐시한다 — SpriteFactory는 호출할 때마다
+        /// Texture2D를 새로 만들기 때문에, 발사마다 새로 만들면 GC가 계속 쌓인다.
+        /// </summary>
+        public static void SpawnLightningBolt(Vector3 from, Vector3 to)
+        {
+            Vector3 a = new Vector3(from.x, from.y, 0f);
+            Vector3 b = new Vector3(to.x, to.y, 0f);
+            Vector3 delta = b - a;
+            float length = delta.magnitude;
+            if (length < 0.0001f) return; // 같은 지점이면 그릴 것이 없다(0으로 나누는 것도 막는다)
+
+            var go = new GameObject("LightningBolt");
+            go.transform.position = Vector3.zero; // 자식들을 월드 좌표로 그대로 배치하기 위해 원점에 둔다
+
+            // 선분에 수직인 단위 벡터. 지그재그의 좌우 흔들림 방향이 된다.
+            Vector3 perp = new Vector3(-delta.y, delta.x, 0f) / length;
+            float jitter = Mathf.Min(0.22f, length * 0.16f); // 짧은 연쇄에서 과하게 튀지 않도록 상한
+
+            var points = new Vector3[BoltSegments + 1];
+            points[0] = a;
+            points[BoltSegments] = b;
+            for (int i = 1; i < BoltSegments; i++)
+            {
+                points[i] = Vector3.Lerp(a, b, i / (float)BoltSegments)
+                            + perp * Random.Range(-jitter, jitter);
+            }
+
+            var segments = new SpriteRenderer[BoltSegments];
+            for (int i = 0; i < BoltSegments; i++)
+                segments[i] = MakeBoltSegment(go.transform, points[i], points[i + 1]);
+
+            EffectRunner.Run(go, FadeOutBolt(go, segments));
+        }
+
+        private const int BoltSegments = 6;        // 지그재그 마디 수
+        private const float BoltThickness = 0.07f; // 번개 굵기(월드 유닛)
+        private const float BoltLifetime = 0.16f;  // 번쩍하고 사라지는 시간(초)
+
+        private static Sprite _boltSprite;
+        private static Sprite BoltSprite =>
+            _boltSprite != null ? _boltSprite : (_boltSprite = SpriteFactory.SolidSquare(Color.white));
+
+        /// <summary>두 점을 잇는 얇은 사각형 하나를 만든다. 길이만큼 늘이고 방향만큼 회전시킨다.</summary>
+        private static SpriteRenderer MakeBoltSegment(Transform parent, Vector3 p0, Vector3 p1)
+        {
+            var sr = NewChild(parent, "BoltSegment", 9); // 투사체(8)보다 위, 폭발(9)과 같은 층
+            sr.sprite = BoltSprite;
+            sr.color = new Color(1f, 0.95f, 0.55f, 0.95f);
+
+            Vector3 d = p1 - p0;
+            float len = d.magnitude;
+            float unit = BoltSprite.bounds.size.x; // SolidSquare는 PPU 8/크기 8이라 1유닛이지만, 바뀌어도 안전하도록 나눠 준다
+
+            sr.transform.position = (p0 + p1) * 0.5f;
+            sr.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg);
+            sr.transform.localScale = new Vector3(len / unit, BoltThickness / unit, 1f);
+            return sr;
+        }
+
+        private static IEnumerator FadeOutBolt(GameObject go, SpriteRenderer[] segments)
+        {
+            var baseColors = new Color[segments.Length];
+            for (int i = 0; i < segments.Length; i++) baseColors[i] = segments[i].color;
+
+            float elapsed = 0f;
+            while (elapsed < BoltLifetime)
+            {
+                elapsed += Time.deltaTime;
+                float p = Mathf.Clamp01(elapsed / BoltLifetime);
+                for (int i = 0; i < segments.Length; i++)
+                {
+                    if (segments[i] == null) continue; // 씬 전환 등으로 먼저 파괴됐을 수 있다
+                    var c = baseColors[i];
+                    segments[i].color = new Color(c.r, c.g, c.b, c.a * (1f - p));
+                }
+                yield return null;
+            }
+            Object.Destroy(go);
         }
 
         private static SpriteRenderer NewChild(Transform parent, string name, int sortingOrder)

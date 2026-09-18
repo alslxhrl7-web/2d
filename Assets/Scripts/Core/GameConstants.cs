@@ -33,22 +33,36 @@ namespace Defense2D
         public const int CannonTowerCost = 30;
 
         /// <summary>[해설] 시작 골드는 "포격탑이면 1개, 화살탑/빙결탑이면 2개를 세울 수 있는 돈"으로
-        /// 맞췄다. 값싼 타워는 15*2 = 30으로 정확히 2개, 포격탑은 25라서 1개를 세우고 5골드가 남는다.
+        /// 맞췄다. 값싼 타워는 15*2 = 30으로 정확히 2개, 포격탑도 30이라 정확히 1개 — 어느 쪽을
+        /// 골라도 잔돈이 남지 않는다. (번개탑 25를 고르면 5골드가 남는다.)
         /// → 첫 수를 "단일 2개로 넓게 깔기"와 "광역 1개 + 잔돈 비축" 중 무엇으로 열지 고르게 하는 것이
         /// 이 값의 목적이다. 비용(TowerCost)을 바꿀 때는 이 값도 같이 봐야 규칙이 유지된다.</summary>
         public const int StartingGold = 30;
 
+        /// <summary>[해설] 번개탑은 맞은 적에서 주변 적으로 연쇄하는 광역 타워다. 한 방 피해는
+        /// 포격탑보다 낮지만 길을 따라 늘어선 적을 줄줄이 훑기 때문에, 값싼 타워(15)와
+        /// 포격탑(30) 사이인 25로 잡았다.</summary>
+        public const int LightningTowerCost = 25;
+
         /// <summary>[해설] 타워 종류별 건설 비용을 한 곳에서 관리한다. BuildManager(구매 처리)와
         /// UIManager(건설 메뉴 안내 문구)가 둘 다 이 메서드를 통해 비용을 물어보므로,
-        /// 나중에 타워별 가격이 또 바뀌어도 여기 한 곳만 고치면 된다.</summary>
-        public static int CostFor(TowerType type) => type == TowerType.Cannon ? CannonTowerCost : TowerCost;
+        /// 나중에 타워별 가격이 또 바뀌어도 여기 한 곳만 고치면 된다.
+        /// 새 타워를 추가하면 여기에 case를 꼭 넣어야 한다 — 빠뜨리면 조용히 TowerCost(15)로
+        /// 취급되어 "왜 이 타워만 싸지?" 같은 원인 모를 밸런스 버그가 된다.</summary>
+        public static int CostFor(TowerType type) => type switch
+        {
+            TowerType.Cannon => CannonTowerCost,
+            TowerType.Lightning => LightningTowerCost,
+            _ => TowerCost,
+        };
 
         /// <summary>[해설] 타워를 철거할 때 건설 비용 중 돌려받는 비율(%). 전액을 돌려주면
         /// "아무 데나 짓고 마음에 안 들면 무료로 옮기기"가 최적 전략이 되어 배치 선택의 긴장감이
         /// 사라지므로, 절반만 돌려줘서 재배치에 약간의 대가가 따르게 했다.</summary>
         public const int TowerRefundPercent = 50;
 
-        /// <summary>타워 철거 시 돌려받는 골드(정수 내림). 화살탑/빙결탑 25 → 12, 포격탑 50 → 25.</summary>
+        /// <summary>타워 철거 시 돌려받는 골드(정수 내림). 현재 비용 기준으로
+        /// 화살탑·빙결탑 15 → 7, 번개탑 25 → 12, 포격탑 30 → 15.</summary>
         public static int RefundFor(TowerType type) => CostFor(type) * TowerRefundPercent / 100;
 
         public const float PrepPhaseSeconds = 8f; // 준비 단계(건설/배치) 기본 시간
