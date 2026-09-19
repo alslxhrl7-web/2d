@@ -59,6 +59,7 @@ namespace Defense2D
         private GameObject _pausePanel;
         private Button _pauseButton;
         private Button _speedButton;
+        private Text _finaleTimerText;
 
         private static readonly Dictionary<int, string> BossHints = new Dictionary<int, string>
         {
@@ -73,7 +74,16 @@ namespace Defense2D
         {
             new UpgradeOption{ Kind = UpgradeKind.AliveCapacity, Label = "수용력 강화", Description = $"동시 생존 허용 한도 +{GameManager.AliveCapacityBonus}" },
             new UpgradeOption{ Kind = UpgradeKind.GoldGain, Label = "재화 감각", Description = "골드 획득량 +10%" },
-            new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Label = "타워 강화", Description = "모든 타워 공격력 +20%" },
+            // ★ "모든 타워 +20%" 하나를 타워 종류별 4개로 쪼갰다. 매 보상마다 아래 6개 중
+            //   3개가 무작위로 뜨므로, 지금 깔아 둔 구성에 맞춰 무엇을 키울지 고르게 된다.
+            new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Arrow,
+                               Label = "화살탑 강화", Description = "화살탑 공격력 +30%" },
+            new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Ice,
+                               Label = "빙결탑 강화", Description = "빙결탑 공격력 +30%" },
+            new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Cannon,
+                               Label = "포격탑 강화", Description = "포격탑 공격력 +30%" },
+            new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Lightning,
+                               Label = "번개탑 강화", Description = "번개탑 공격력 +30%" },
         };
 
         /// <summary>프로젝트에 내장한 한글 폰트의 Resources 경로(확장자 제외).</summary>
@@ -94,6 +104,7 @@ namespace Defense2D
             // 게임오버 화면이 일시정지 화면을 덮도록 하려면 이 순서여야 한다.
             BuildPausePanel();
             BuildEndPanel();
+            BuildFinaleTimer();
             BuildHintText();
         }
 
@@ -360,6 +371,28 @@ namespace Defense2D
         /// 준비 단계면 "웨이브 시작", 방어 단계(보스 제외)면 "웨이브 스킵"으로 같은 버튼이 동작한다.
         /// 매 프레임 현재 게임 상태를 보고 버튼의 표시/문구/클릭 동작을 갱신한다.
         /// </summary>
+        /// <summary>
+        /// ★ 스테이지 피날레(로컬 25웨이브)의 60초 보스 처치 제한시간을 화면에 띄운다.
+        ///
+        /// [해설] 이 제한시간은 게임의 유일한 "시간" 패배 조건인데, 그동안 <b>아무 데도 표시되지
+        /// 않았다</b>. WaveManager.FinaleTimeRemaining이라는 속성이 "UI 경고용"이라는 주석을 달고
+        /// 만들어져 있었지만 호출하는 곳이 한 군데도 없었고, 준비 패널은 웨이브가 시작되면
+        /// 바로 사라지며 상단 액션 버튼도 보스전에는 숨겨진다. 그래서 플레이어는 예고도
+        /// 카운트다운도 없이 갑자기 게임오버를 맞았다. 남은 시간이 10초 이하면 빨갛게 바뀐다.
+        /// </summary>
+        public void RefreshFinaleTimer()
+        {
+            if (_finaleTimerText == null) return;
+
+            float left = Game.Waves != null ? Game.Waves.FinaleTimeRemaining : 0f;
+            bool show = left > 0f;
+            _finaleTimerText.gameObject.SetActive(show);
+            if (!show) return;
+
+            _finaleTimerText.text = $"보스 처치까지 {Mathf.CeilToInt(left)}초";
+            _finaleTimerText.color = left <= 10f ? new Color(1f, 0.35f, 0.3f) : new Color(1f, 0.85f, 0.35f);
+        }
+
         public void RefreshActionButton()
         {
             if (_actionButton == null || Game == null) return;
@@ -437,6 +470,14 @@ namespace Defense2D
         }
 
         public void SetBuildMenuOpen(bool open) => _buildPanel.SetActive(open);
+
+        private void BuildFinaleTimer()
+        {
+            _finaleTimerText = CreateText("FinaleTimer", _canvas.transform, "", 26,
+                new Color(1f, 0.85f, 0.35f), TextAnchor.MiddleCenter,
+                new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(520, 36), new Vector2(0, -54));
+            _finaleTimerText.gameObject.SetActive(false);
+        }
 
         private void BuildHintText()
         {

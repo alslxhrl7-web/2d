@@ -46,35 +46,49 @@ namespace Defense2D
         /// A(0번 꼭짓점 출발)와 B(2번 꼭짓점, 즉 절반 바퀴 앞서 출발) 도안을 함께 만든다.</summary>
         private static Template FromSquare(Vector3 c0, Vector3 c1, Vector3 c2, Vector3 c3)
         {
+            // [해설] ★ 2.5D 전환. 아래 좌표들은 "위에서 수직으로 내려다본" 기준의 정사각형인데,
+            // 비스듬히 내려다보면 세로가 눌려 보인다. View.Ground가 y에 GroundSquash(0.62)를
+            // 곱해서 그 눌린 모양으로 바꿔 준다. 눌린 좌표를 그대로 게임 좌표로 쓰기 때문에
+            // 이동·조준·배치 판정이 전부 같은 좌표계에서 돌아가고, 보이는 것과 로직이 어긋나지 않는다.
             return new Template
             {
-                WaypointsA = new List<Vector3> { c0, c1, c2, c3 },
-                WaypointsB = new List<Vector3> { c2, c3, c0, c1 },
+                WaypointsA = new List<Vector3> { View.Ground(c0), View.Ground(c1), View.Ground(c2), View.Ground(c3) },
+                WaypointsB = new List<Vector3> { View.Ground(c2), View.Ground(c3), View.Ground(c0), View.Ground(c1) },
             };
         }
 
         // 도안은 늘리기 쉽도록 배열로 관리한다. 스테이지 번호를 이 배열 길이로 나눈 나머지로
         // 골라 쓰므로(아래 GetForStage), 3개 스테이지에 정확히 하나씩 고정 배정된다.
-        // [해설] "정사각형은 유지하되 사이즈를 키워달라"는 요청에 따라 한 번 더 확대했다
-        // (7.6/8.2/9.0 → 9.6/9.6/10.4). 세로(WorldHalfHeight=5.8, 즉 y는 ±5.8) 여유가
-        // 가로보다 훨씬 좁으므로, 각 정사각형이 세로 방향으로 world 경계(타워 배치 한계인
-        // WorldHalfHeight-0.3=5.5)를 넘지 않는 선에서 최대한 키웠다.
+        // [해설] ★ 길을 상하좌우로 <b>각 3칸씩</b> 넓혔다. 도로 타일이 놓이는 간격이 0.62유닛이므로
+        // 네 변을 각각 3 x 0.62 = 1.86유닛 바깥으로 밀었다(가로도 세로도 같은 값 — 세로는
+        // View.Ground가 0.62를 곱하면서 화면에서도 정확히 타일 3칸 높이가 된다).
+        // 그 결과 1번 도안은 9.6 x 5.95 → 13.3 x 8.26유닛이 되고, 건설 가능 영역은
+        // 7.9 x 4.25 → 11.6 x 6.56으로 약 2.3배 넓어진다. 카메라도 같이 키웠다
+        // (GameBootstrapper.SetupCamera — 안 키우면 아래쪽 도로가 화면 밖으로 잘린다).
+        //
+        // 아래 좌표는 "위에서 수직으로 내려다본" 기준이고, FromSquare가 View.Ground로
+        // 세로를 0.62배 눌러 실제 게임 좌표를 만든다. 그래서 눈에 보이는 도안은 9.6 x 5.95처럼
+        // 납작한 직사각형이다.
+        // ※ 크기를 다시 손볼 때 GameConstants.WorldHalfHeight(5.8)를 기준으로 삼지 말 것 —
+        //   그 값은 2.5D 전환 후 죽은 제약이다. 실제 한계는 카메라가 보여 주는 범위
+        //   (y -4.95~7.05, x는 화면비에 따라 ±9.6 이상 — GameBootstrapper.SetupCamera)이고, 타워·보스가 바닥 지점보다
+        //   위로 최대 2.7유닛 솟는다는 점까지 감안해야 한다.
         private static readonly Template[] Templates =
         {
-            // ---- 0번 도안: 화면 중앙의 정사각형 루프 (한 변 9.6) ----
+            // ---- 0번 도안: 화면 중앙의 정사각형 루프 (확장 후 한 변 13.3) ----
             FromSquare(
-                new Vector3(-4.8f, -4.8f, 0), new Vector3(4.8f, -4.8f, 0),
-                new Vector3(4.8f, 4.8f, 0), new Vector3(-4.8f, 4.8f, 0)),
+                new Vector3(-6.66f, -6.66f, 0), new Vector3(6.66f, -6.66f, 0),
+                new Vector3(6.66f, 6.66f, 0), new Vector3(-6.66f, 6.66f, 0)),
 
-            // ---- 1번 도안: 좌측으로 치우친, 조금 더 세로가 긴 정사각형 루프 (한 변 9.6) ----
+            // ---- 1번 도안: 좌측으로 치우친, 조금 더 세로가 긴 정사각형 루프 (확장 후 한 변 13.3) ----
             FromSquare(
-                new Vector3(-5.8f, -4.5f, 0), new Vector3(3.8f, -4.5f, 0),
-                new Vector3(3.8f, 5.1f, 0), new Vector3(-5.8f, 5.1f, 0)),
+                new Vector3(-7.66f, -6.36f, 0), new Vector3(5.66f, -6.36f, 0),
+                new Vector3(5.66f, 6.96f, 0), new Vector3(-7.66f, 6.96f, 0)),
 
-            // ---- 2번 도안: 우측으로 치우친, 화면을 가장 크게 쓰는 정사각형 루프 (한 변 10.4) ----
+            // ---- 2번 도안: 우측으로 치우친, 화면을 가장 크게 쓰는 정사각형 루프 (확장 후 한 변 14.1) ----
             FromSquare(
-                new Vector3(-4.4f, -5.3f, 0), new Vector3(6.0f, -5.3f, 0),
-                new Vector3(6.0f, 5.1f, 0), new Vector3(-4.4f, 5.1f, 0)),
+                new Vector3(-6.26f, -7.16f, 0), new Vector3(7.86f, -7.16f, 0),
+                new Vector3(7.86f, 6.96f, 0), new Vector3(-6.26f, 6.96f, 0)),
         };
 
         /// <summary>

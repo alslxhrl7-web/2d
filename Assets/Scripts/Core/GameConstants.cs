@@ -74,8 +74,14 @@ namespace Defense2D
         public const float PrepPhaseSecondsAfterSkip = 1f;
 
         // 플레이 필드 경계 (월드 유닛)
-        // [해설] 맵이 화면 대비 작아 보인다는 요청에 따라 확장했다(9→10.5, 5.2→5.8).
-        // 카메라 orthographicSize(6.2)는 그대로 두었으므로, 필드가 커진 만큼 화면을 더 채운다.
+        // [해설] ★ 2.5D 전환 후 이 두 값은 사실상 <b>죽은 제약</b>이다. 배치 가능 여부는
+        // PathData.ContainsPoint(길 안쪽인가)가 먼저 가르는데, 가장 넓은 도안도 |x| 6.0 /
+        // |y| 3.3을 넘지 않아서 아래 경계(10.2 / 5.5)에는 절대 닿지 않는다.
+        // 실제 화면 범위도 더 이상 이 값과 무관하다 — 카메라가 (0, 1.05)에 크기 6.0(좁은 화면비에서는
+        // 자동 확대)이라 보이는 범위가 y -4.95~7.05로 위아래가 <b>비대칭</b>이다
+        // (GameBootstrapper.SetupCamera 참고). 나중에 필드를 다시 손볼 때 이 숫자를 기준으로
+        // 삼으면 틀리니, 도안 크기는 PathLibrary에서 카메라 범위를 직접 보고 정할 것.
+        // 값 자체는 혹시 ContainsPoint가 빠지는 변경이 생겼을 때의 최후 방어선으로 남겨 둔다.
         public const float WorldHalfWidth = 10.5f;
         public const float WorldHalfHeight = 5.8f;
 

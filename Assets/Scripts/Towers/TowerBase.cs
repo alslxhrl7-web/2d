@@ -10,19 +10,55 @@ namespace Defense2D
     /// </summary>
     public abstract class TowerBase : MonoBehaviour
     {
-        /// <summary>모든 타워에 공통으로 곱해지는 공격력 배율. 웨이브 보상 "타워 강화"를 고를
-        /// 때마다 ×1.2로 누적된다(GameManager.ApplyUpgrade). 실제로 곱해지는 곳은
-        /// Projectile.Hit()이며, 타워가 쏜 피해에만 적용된다.
-        /// static이라 이미 세워둔 타워까지 전부 소급 적용된다.</summary>
-        public static float GlobalDamageMultiplier = 1f;
+        /// <summary>
+        /// ★ 타워 <b>종류별</b> 공격력 배율. 웨이브 보상에서 "화살탑 강화"처럼 한 종류를 고를
+        /// 때마다 그 종류에만 누적된다(GameManager.ApplyUpgrade).
+        ///
+        /// [해설] 예전에는 모든 타워에 함께 곱해지는 값 하나(GlobalDamageMultiplier)였다.
+        /// 그러면 보상에서 "타워 강화"가 뜨면 고민 없이 고르면 되는, 선택이 아닌 항목이었다.
+        /// 종류별로 나누면 "지금 화살탑이 많으니 화살탑을 키울까, 아니면 포격탑 하나에
+        /// 몰아줄까" 같은 판단이 생긴다.
+        ///
+        /// static이라 이미 세워 둔 타워에도 소급 적용되고, 씬을 다시 불러와도 남으므로
+        /// GameBootstrapper.ResetStaticState에서 반드시 되돌려야 한다.
+        /// 배열 크기는 enum 길이를 따라가므로 타워를 추가해도 그대로 동작한다.
+        /// </summary>
+        private static float[] _damageMultipliers = NewMultiplierTable();
+
+        private static float[] NewMultiplierTable()
+        {
+            var t = new float[System.Enum.GetValues(typeof(TowerType)).Length];
+            for (int i = 0; i < t.Length; i++) t[i] = 1f;
+            return t;
+        }
+
+        public static float DamageMultiplierFor(TowerType type)
+        {
+            int i = (int)type;
+            return (i >= 0 && i < _damageMultipliers.Length) ? _damageMultipliers[i] : 1f;
+        }
+
+        public static void MultiplyDamage(TowerType type, float factor)
+        {
+            int i = (int)type;
+            if (i >= 0 && i < _damageMultipliers.Length) _damageMultipliers[i] *= factor;
+        }
+
+        /// <summary>새 게임 시작 시 모든 종류의 배율을 1로 되돌린다.</summary>
+        public static void ResetDamageMultipliers() => _damageMultipliers = NewMultiplierTable();
         public static readonly List<TowerBase> Active = new List<TowerBase>();
 
         public TowerType Type;
         public float Range = 2.6f;       // 공격 사거리(월드 유닛)
         public float FireInterval = 1f;  // 발사 간격(초)
 
+        /// <summary>강화 배율까지 반영한 <b>실제로 나가는</b> 피해량. 각 타워의 Fire()는
+        /// Damage가 아니라 이 값을 투사체에 넘긴다 — 그래서 Projectile은 배율을 몰라도 되고,
+        /// 딜 누수 방지용 예약 계산도 실제 값과 자동으로 일치한다.</summary>
+        protected float EffectiveDamage => Damage * DamageMultiplierFor(Type);
+
         /// <summary>이 타워가 한 발에 주는 기본 피해량. 각 타워의 Setup()에서 정한다
-        /// (화살탑 9 / 빙결탑 3 / 포격탑 26). 이 값이 단일 대상에게 들어갈지 범위 안 전원에게
+        /// (화살탑 9 / 빙결탑 4.5 / 포격탑 26 / 번개탑 14). 이 값이 단일 대상에게 들어갈지 범위 안 전원에게
         /// 들어갈지는 각 타워의 Fire()가 Projectile에 넘기는 splashRadius가 결정한다 —
         /// 타입별 피해 방식 전체 설명은 Projectile.Hit() 주석 참고.</summary>
         public float Damage = 10f;
@@ -31,6 +67,18 @@ namespace Defense2D
         /// 철거 호버 강조(빨강)와 보스의 무력화 연출(회색)이 끝나면 둘 다 이 색으로 되돌린다 —
         /// 원래 색의 출처를 한 곳으로 모아 두 연출이 서로의 색을 덮어쓰는 사고를 막는다.</summary>
         public Color BaseColor { get; set; } = Color.white;
+
+        /// <summary>
+        /// 발사체가 나가는 지점 — 타워의 발밑이 아니라 <b>윗부분</b>이다.
+        ///
+        /// [해설] ★ 2.5D 전환의 부작용 수정. transform.position은 타워가 딛고 선 바닥 지점이라,
+        /// 거기서 화살이 나가면 탑 꼭대기가 아니라 <b>땅바닥에서 화살이 솟는</b> 것처럼 보인다.
+        /// 타워 그림 높이(BuildManager.TowerArtWorldHeight = 1.5)의 0.75 지점에서 쏘게 했다.
+        /// 조준·사거리 판정은 그대로 바닥 좌표로 하므로 게임 로직은 바뀌지 않는다.
+        /// </summary>
+        public Vector3 MuzzlePoint => transform.position + new Vector3(0f, MuzzleHeight, 0f);
+
+        private const float MuzzleHeight = 1.125f; // 1.5 * 0.75
 
         private float _cooldown;
         private float _disableTimer;
@@ -53,7 +101,8 @@ namespace Defense2D
         {
             _disableTimer = Mathf.Max(_disableTimer, seconds);
 
-            var sr = GetComponent<SpriteRenderer>();
+            // 2.5D 전환 후 스프라이트는 본체가 아니라 자식("Visual")에 붙어 있다.
+            var sr = GetComponentInChildren<SpriteRenderer>();
             if (sr == null) return;
             if (_flashRoutine != null) return; // 이미 회색 연출 중이면 타이머만 늘리고 끝낸다
             _flashRoutine = StartCoroutine(FlashDisabled(sr));

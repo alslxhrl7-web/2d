@@ -27,6 +27,9 @@ namespace Defense2D
         private float _bonusDamageWindow;
         private int _phase = 1;
 
+        /// <summary>보스는 남은 체력이 곧 전투의 핵심 정보이므로, 가득 차 있어도 체력바를 계속 보여 준다.</summary>
+        protected override bool AlwaysShowHpBar => true;
+
         public void InitBoss(int bossIndex, string name, WaveManager wm, GameManager gm, BuildManager bm)
         {
             BossIndex = bossIndex;
@@ -111,14 +114,26 @@ namespace Defense2D
         private void SetVulnerable(bool on)
         {
             _bonusDamageWindow = on ? 1f : 0f;
-            var sr = GetComponent<SpriteRenderer>();
-            if (sr != null) sr.color = on ? new Color(1f, 0.9f, 0.4f) : Color.white;
+            // ★ 버그 수정: 2.5D 전환으로 스프라이트가 본체에서 자식("Visual")으로 옮겨가면서
+            // GetComponent<SpriteRenderer>()가 늘 null을 돌려줬고, 그 결과 "지금 약점이 열렸다"는
+            // 유일한 신호(노란빛)가 아예 안 나왔다. 부모 클래스가 이미 들고 있는 _sr을 쓴다.
+            if (_sr != null) _sr.color = on ? new Color(1f, 0.9f, 0.4f) : Color.white;
         }
 
-        public override void TakeDamage(float amount, DamageSource source)
+        /// <summary>
+        /// ★ 약점 노출(1.6배)을 TakeDamage가 아니라 <b>ExpectedDamage</b>에서 곱한다.
+        ///
+        /// [해설] 예전에는 TakeDamage에서 곱했는데, 그러면 딜 누수 방지용 예약
+        /// (Projectile이 발사 시점에 EnemyController.ExpectedDamage로 계산해 잡아 두는 값)이
+        /// 실제 피해보다 37.5% 적게 잡힌다. 그 결과 취약 창 동안 보스의 EffectiveHP가 실제보다
+        /// 높게 보여, 이미 죽을 보스에게 화살을 계속 쏘고 그 화살들이 허공에 사라진다 —
+        /// 바로 이 시스템이 없애려던 누수다. ExpectedDamage 하나만 덮어쓰면 TakeDamage는
+        /// 부모 구현이 이 함수를 거치므로 실제 피해와 예약이 자동으로 같아진다.
+        /// </summary>
+        public override float ExpectedDamage(float amount, DamageSource source)
         {
             if (_bonusDamageWindow > 0f) amount *= 1.6f; // 돌진 직후 약점 노출: 추가 피해
-            base.TakeDamage(amount, source);
+            return base.ExpectedDamage(amount, source);
         }
     }
 }

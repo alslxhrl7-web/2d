@@ -68,9 +68,14 @@ namespace Defense2D
         /// 종류(몹/돌진/방패)와 웨이브에 상관없이 고정이다 — 위 SpawnEnemy의 해설 참고.</summary>
         private const float KillGoldReward = 0.5f;
 
-        /// <summary>적 체력 스케일링이 시작되는 (전역) 웨이브 번호. 이 웨이브 전까지는 배율 1.0으로
-        /// 고정이고, 이 웨이브부터 웨이브당 +8%씩 누적된다 — SpawnEnemy의 hpScale 계산 참고.</summary>
+        /// <summary>적 체력 증가가 시작되는 (전역) 웨이브 번호. 이 웨이브 전까지는 기본 체력
+        /// 그대로이고, 이 웨이브부터 웨이브당 HpGainPerWave만큼 더해진다 — SpawnEnemy 참고.</summary>
         private const int HpScaleStartWave = 5;
+
+        /// <summary>HpScaleStartWave 이후 <b>웨이브 한 번마다</b> 모든 일반 적의 체력에 더해지는 양.
+        /// 잡몹 기준 1~4웨 27 / 5웨 37 / 10웨 87 / 25웨 237 / 50웨 487 / 75웨 737이 된다.
+        /// 보스는 자기 공식(baseHp)을 따로 쓰므로 이 값의 영향을 받지 않는다.</summary>
+        private const float HpGainPerWave = 10f;
         private int _maxAliveCapacity = GameConstants.StartingMaxAliveEnemies;
 
         // 스폰 간격(초). 예전보다 더 촘촘하게 몰아쳐서 나오도록 축소했다.
@@ -122,7 +127,16 @@ namespace Defense2D
 
             // [해설] "길은 고정" — 스테이지의 첫 웨이브에서만 새 길을 적용한다. 나머지 웨이브에서는
             // Path.WaypointsA/B를 건드리지 않으므로 그 스테이지 내내 같은 길을 그대로 쓴다.
-            if (LocalWave == 1) ApplyPathForStage(StageIndex);
+            // [해설] ★ 버그 수정. 예전에는 여기서 "로컬 웨이브 1이면 길을 새로 깐다"고 했는데,
+            // <b>게임 첫 웨이브도 로컬 웨이브 1</b>이라 시작하자마자 스테이지 전환 처리가 돌았다.
+            // 그 결과 첫 준비 시간(8초) 동안 시작 골드로 세운 타워 2개가 웨이브 1이 시작되는
+            // 순간 통째로 철거됐다. 게다가 전환이 "웨이브 시작" 시점이라, 2·3스테이지에서도
+            // 플레이어는 아직 바뀌지 않은 옛 길을 보며 준비 시간을 쓰고 타워를 세운 뒤,
+            // 웨이브가 시작되자마자 그게 다 지워졌다.
+            // 이제 길 교체는 스테이지 피날레를 깬 직후(GameManager.OnWaveClearedHandler →
+            // PrepareNextStage)에 하고 여기서는 아무것도 하지 않는다. 그러면 보상 선택과 준비
+            // 시간을 새 길을 보면서 쓸 수 있고, 그때 세운 타워도 지워지지 않는다.
+            // 첫 스테이지의 길은 GameBootstrapper.BuildGame이 이미 깔아 둔다.
 
             WaveDefinition def = BuildWave(LocalWave, StageIndex);
             _isBossWave = def.IsBoss;
@@ -175,11 +189,27 @@ namespace Defense2D
             Path.WaypointsA = template.WaypointsA;
             Path.WaypointsB = template.WaypointsB;
             GameBootstrapper.RedrawPathVisuals(Path);
+        }
 
-            // [해설] 길이 바뀌면 예전 길 기준으로 세워둔 타워가 새 길 바깥에 남거나 길 위에
-            // 걸치게 된다. 눈에 보이는 길만 새로 그리고 타워를 방치하면 "설치할 수 없는 자리에
-            // 서 있는 타워"가 생기므로, 여기서 곧바로 정리하고 건설비를 전액 돌려준다.
-            Build?.RevalidateTowersForNewPath();
+        /// <summary>
+        /// 스테이지 피날레를 깬 직후에 호출된다. 다음 스테이지의 길로 <b>미리</b> 갈아끼우고,
+        /// 기존 타워를 전부 철거해 건설비를 전액 돌려준다.
+        ///
+        /// [해설] 스테이지마다 길 모양이 통째로 달라지므로, 판을 비우고 새 길에 맞춰 처음부터
+        /// 다시 짜게 한다("새 길에서 무효가 된 것만" 골라 지우면 남은 타워와 새 타워가 뒤섞여
+        /// 배치가 누더기가 되고, 무엇이 왜 사라졌는지도 알 수 없다).
+        ///
+        /// 호출 시점이 중요하다. 이 뒤에 보상 선택 → 준비 시간이 오므로, 플레이어는 이미 바뀐
+        /// 새 길을 보면서 타워를 배치하게 된다. 예전처럼 다음 웨이브가 "시작"될 때 교체하면
+        /// 준비 시간에 옛 길을 보고 세운 타워가 웨이브 시작과 동시에 지워진다.
+        /// </summary>
+        public void PrepareNextStage()
+        {
+            int next = StageIndex + 1;
+            if (next >= GameConstants.TotalStages) return; // 마지막 스테이지면 넘어갈 곳이 없다
+
+            ApplyPathForStage(next);
+            Build?.ClearAllTowersForNewStage();
         }
 
         /// <summary>스테이지 중간 보스(10, 20웨이브...) 여부와 피날레(스테이지 마지막 웨이브) 여부를
@@ -286,14 +316,21 @@ namespace Defense2D
             // 웨이브가 지날수록 적이 전반적으로 강해지도록 체력/이동속도/보상을
             // 모두 (전역) 웨이브 번호에 비례해서 키운다. (1웨이브 기준 배율 1.0)
 
-            // [해설] 체력 증가는 HpScaleStartWave(5)웨이브부터 시작한다. 예전에는 1웨이브부터
-            // 곧바로 올라서(2웨이브에 벌써 +8%) 타워 한두 개로 버티는 도입부가 사실상 없었다.
-            // 이제 1~4웨이브는 배율 1.0으로 고정이고, 5웨이브부터 웨이브당 +8%씩 붙는다.
-            //   1~4웨 1.00 / 5웨 1.08 / 10웨 1.48 / 25웨 2.68 / 75웨 6.68
-            // Mathf.Max(0, ...)가 4웨이브 이하에서 음수가 곱해지는(=체력이 줄어드는) 것을 막는다.
-            // 속도/보스 보상 스케일링은 손대지 않았다 — 체력만 늦게 오르게 하는 변경이다.
-            int hpScaleWaves = Mathf.Max(0, CurrentWave - HpScaleStartWave + 1);
-            float hpScale = 1f + hpScaleWaves * 0.08f;
+            // [해설] 체력 증가는 HpScaleStartWave(5)웨이브부터 시작한다. 1웨이브부터 곧바로
+            // 올리면 타워 한두 개로 버티는 도입부가 사라지기 때문이다. 1~4웨이브는 기본 체력
+            // 그대로이고, 5웨이브부터 웨이브당 HpGainPerWave(10)씩 더해진다.
+            //   잡몹 기준 1~4웨 27 / 5웨 37 / 10웨 87 / 25웨 237 / 50웨 487 / 75웨 737
+            // Mathf.Max(0, ...)가 4웨이브 이하에서 음수가 더해지는(=체력이 줄어드는) 것을 막는다.
+            // 속도/보스 체력은 각자 따로 계산하므로 여기 영향을 받지 않는다.
+            // ★ 증가 방식을 "배율(+8%)"에서 <b>가산(+10)</b>으로 바꿨다. 배율은 원래 체력에
+            // 비례하므로 잡몹과 방패병의 격차가 계속 벌어지는데, 가산은 모두에게 같은 양이
+            // 붙어서 웨이브가 갈수록 종류별 차이가 좁혀지고 증가량을 예측하기도 쉽다.
+            int hpGrowthWaves = Mathf.Max(0, CurrentWave - HpScaleStartWave + 1);
+            float hpBonus = hpGrowthWaves * HpGainPerWave;
+            // [해설] 기본 이동속도를 일괄 +50% 올렸다(일반 1.5→2.25 / 돌진 2.6→3.9 / 방패 0.9→1.35 /
+            // 보스 1.1→1.65). 적이 사거리 안에 머무는 시간이 3분의 2로 줄어들기 때문에, 타워의
+            // 실효 화력도 그만큼 떨어져서 난이도가 눈에 띄게 올라간다.
+            // 아래 웨이브 배율(최대 +60%)은 그 위에 그대로 곱해진다.
             float speedScale = 1f + Mathf.Min(0.6f, (CurrentWave - 1) * 0.02f);
             // [해설] 골드 증가 폭도 0.03 → 0.02로 완만하게 낮췄다(아래 경제 너프의 일부).
             float goldScale = 1f + (CurrentWave - 1) * 0.02f;
@@ -308,7 +345,7 @@ namespace Defense2D
                 // 뒤에도 보스만 예전 값을 유지하면 보스 한 마리(약 106골드)가 그때까지 번 돈의
                 // 절반을 차지해버려서, 경제 너프가 사실상 무의미해지기 때문이다.
                 float bossGold = (15 + bossEncounterNumber * 10) * goldScale;
-                boss.Init(EnemyType.Boss, baseHp, 1.1f * speedScale, bossGold, wp,
+                boss.Init(EnemyType.Boss, baseHp, 1.65f * speedScale, bossGold, wp,
                     new Color(0.75f, 0.2f, 0.75f), Color.white);
                 boss.InitBoss(bossPatternIndex, BossNames[bossPatternIndex - 1], this, Game, Build);
                 ec = boss;
@@ -333,15 +370,15 @@ namespace Defense2D
                     case EnemyType.Mob:
                         // [해설] 기본 체력을 27로 맞춰서, 1웨이브 기준(hpScale=1) 화살탑(공격력 9)에
                         // 정확히 3번 맞으면 죽도록(9×3=27) 1차 밸런스 기준점을 잡았다.
-                        ec.Init(type, 27f * hpScale, 1.5f * speedScale, KillGoldReward,
+                        ec.Init(type, 27f + hpBonus, 2.25f * speedScale, KillGoldReward,
                             wp, new Color(0.85f, 0.3f, 0.3f), Color.white);
                         break;
                     case EnemyType.Charger:
-                        ec.Init(type, 22f * hpScale, 2.6f * speedScale, KillGoldReward,
+                        ec.Init(type, 22f + hpBonus, 3.9f * speedScale, KillGoldReward,
                             wp, new Color(0.95f, 0.55f, 0.2f), Color.white);
                         break;
                     case EnemyType.Shield:
-                        ec.Init(type, 55f * hpScale, 0.9f * speedScale, KillGoldReward,
+                        ec.Init(type, 55f + hpBonus, 1.35f * speedScale, KillGoldReward,
                             wp, new Color(0.55f, 0.35f, 0.85f), Color.white);
                         break;
                 }

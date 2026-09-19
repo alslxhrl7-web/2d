@@ -100,6 +100,7 @@ namespace Defense2D
             }
 
             UI.RefreshActionButton();
+            UI.RefreshFinaleTimer(); // 피날레 제한시간 카운트다운(해당 웨이브가 아니면 스스로 숨는다)
         }
 
         private void HandlePauseInput()
@@ -176,7 +177,7 @@ namespace Defense2D
 
         /// <summary>
         /// 골드 수입을 더한다(적 처치 보상 + 웨이브 클리어 보너스). [해설] 보상이 1골드보다 작을 수
-        /// 있으므로(잡몹 0.22 등) 소수점을 버리지 않고 _goldFraction에 모아뒀다가, 1을 넘길 때마다
+        /// 있으므로(모든 일반 적 0.5 = 2마리당 1골드) 소수점을 버리지 않고 _goldFraction에 모아뒀다가, 1을 넘길 때마다
         /// 그만큼만 실제 골드로 지급한다. 이렇게 해야 "50마리 × 최소 1골드"라는 바닥에 걸리지 않고
         /// 경제를 원하는 만큼 조일 수 있다. "재화 감각" 업그레이드 배율(_goldMultiplier)도 여기서 곱한다.
         /// </summary>
@@ -276,7 +277,19 @@ namespace Defense2D
             }
 
             if (wasStageFinale)
-                UI.ShowBanner($"STAGE {Waves.StageNumber} 클리어! 다음 스테이지로 이동합니다.");
+            {
+                // [해설] 길 교체와 타워 철거를 여기서 미리 해 둔다. 이 다음에 보상 선택과 준비
+                // 시간이 오므로, 플레이어는 새 길을 보면서 타워를 새로 배치할 수 있다.
+                // (예전에는 다음 웨이브가 "시작"될 때 교체해서, 준비 시간에 세운 타워가
+                //  웨이브 시작과 동시에 지워졌다 — WaveManager.BeginNextWave 해설 참고.)
+                //
+                // ★ 배너 순서 주의: PrepareNextStage 안에서 "타워 N개 철거" 배너를 띄우기 때문에,
+                //   스테이지 클리어 배너를 <b>먼저</b> 띄우면 같은 프레임에 덮여서 한 프레임도
+                //   보이지 않는다. 그래서 철거를 먼저 하고, 두 소식을 한 배너로 합쳐서 띄운다.
+                int stageJustCleared = Waves.StageNumber;
+                Waves.PrepareNextStage();
+                UI.ShowBanner($"STAGE {stageJustCleared} 클리어! 다음 스테이지 — 새 길에 맞춰 타워를 다시 배치하세요.");
+            }
 
             State = GameState.Reward;
             UI.ShowRewardPanel(OnRewardChosen);
@@ -293,6 +306,12 @@ namespace Defense2D
         /// UIManager.AllUpgrades의 안내 문구("동시 생존 허용 한도 +6")와 반드시 같은 값이어야 한다.</summary>
         public const int AliveCapacityBonus = 6;
 
+        /// <summary>"○○탑 강화" 보상 1회당 <b>그 종류</b>의 공격력에 곱해지는 배율.
+        /// [해설] 예전 전체 강화는 ×1.2였는데, 이제 네 종류 중 하나에만 붙으므로 같은 값이면
+        /// 체감이 4분의 1로 줄어든다. 한 종류에 몰아주는 선택이 의미 있도록 ×1.3으로 올렸다.
+        /// UIManager.AllUpgrades의 안내 문구(+30%)와 반드시 같은 값이어야 한다.</summary>
+        public const float TowerDamageBonus = 1.3f;
+
         private void ApplyUpgrade(UpgradeOption opt)
         {
             switch (opt.Kind)
@@ -307,7 +326,8 @@ namespace Defense2D
                     _goldMultiplier *= 1.1f;
                     break;
                 case UpgradeKind.TowerDamage:
-                    TowerBase.GlobalDamageMultiplier *= 1.2f;
+                    // ★ 모든 타워가 아니라 고른 종류 하나에만 누적된다(UpgradeOption.Target).
+                    TowerBase.MultiplyDamage(opt.Target, TowerDamageBonus);
                     break;
             }
             UI.ShowBanner($"업그레이드 적용: {opt.Label}");

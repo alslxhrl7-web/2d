@@ -13,9 +13,9 @@ namespace Defense2D
     ///
     /// 피해 전달 방식이 다른 타워와 다르다. 화살탑/빙결탑/포격탑은 Projectile을 날려서
     /// Projectile.Hit()이 피해를 주지만, 번개는 날아가는 물체가 아니라 즉시 이어지는 선이므로
-    /// 투사체 없이 Fire()에서 곧바로 피해를 준다. 그래서 Projectile.Hit()이 해 주던
-    /// "전역 공격력 배율 곱하기"를 여기서 직접 해야 한다(아래 mult 참고). 방패병 경감은
-    /// EnemyController.TakeDamage 안에서 처리되므로 다른 타워와 동일하게 적용된다.
+    /// 투사체 없이 Fire()에서 곧바로 피해를 준다. 강화 배율은 다른 타워와 마찬가지로
+    /// TowerBase.EffectiveDamage가 종류별로 곱해 주고, 방패병 경감은 EnemyController.TakeDamage
+    /// 안에서 처리되므로 결과적으로 피해 계산 경로는 세 타워와 완전히 같다.
     /// </summary>
     public class LightningTower : TowerBase
     {
@@ -30,7 +30,7 @@ namespace Defense2D
         public void Setup()
         {
             Type = TowerType.Lightning;
-            Range = 3.0f;        // BuildManager.TowerRangeFor(Lightning)과 반드시 같아야 한다
+            Range = 2.45f;        // BuildManager.TowerRangeFor(Lightning)과 반드시 같아야 한다
             FireInterval = 1.3f;
             Damage = 14f;
         }
@@ -57,18 +57,16 @@ namespace Defense2D
         {
             _chained.Clear();
 
-            // Projectile.Hit()의 ②단계에 해당한다. 번개는 투사체를 거치지 않으므로 여기서 곱한다.
-            float mult = GlobalDamageMultiplier;
-
             EnemyController current = target;
-            Vector3 from = transform.position;
-            float damage = Damage;
+            Vector3 from = MuzzlePoint; // 2.5D: 번개도 탑 윗부분에서 뻗어 나간다
+            float damage = EffectiveDamage; // 번개탑 전용 강화 배율이 이미 반영된 값
 
             while (current != null && _chained.Count < MaxChainTargets)
             {
                 _chained.Add(current);
 
-                Vector3 hitPos = current.transform.position;
+                // 번개가 닿는 곳은 몸통(AimPoint), 연쇄 판정 기준은 바닥(transform.position)이다.
+                Vector3 hitPos = current.AimPoint;
                 ImpactEffect.SpawnLightningBolt(from, hitPos);
 
                 // [해설] TakeDamage가 적을 죽일 수 있다. 죽은 적은 IsDead가 즉시 true가 되고
@@ -76,11 +74,11 @@ namespace Defense2D
                 // FindNextChainTarget이 IsDead를 걸러내므로 이미 죽은 적으로는 튀지 않는다.
                 // 피해를 준 뒤에 다음 대상을 찾으므로, 목록을 순회하는 도중에 목록이 바뀌는
                 // 상황(InvalidOperationException)도 생기지 않는다.
-                current.TakeDamage(damage * mult, DamageSource.Tower);
+                current.TakeDamage(damage, DamageSource.Tower);
 
                 from = hitPos;
                 damage *= ChainFalloff;
-                current = FindNextChainTarget(hitPos);
+                current = FindNextChainTarget(current.transform.position);
             }
         }
 

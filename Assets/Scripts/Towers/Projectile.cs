@@ -51,13 +51,14 @@ namespace Defense2D
             // 알 수 없고, 애초에 그쪽은 낭비가 아니기 때문이다.
             if (_target != null)
             {
-                float mult = (_source == DamageSource.Tower) ? TowerBase.GlobalDamageMultiplier : 1f;
-                _reserved = _target.ExpectedDamage(_damage * mult, _source);
+                // [해설] 강화 배율은 이제 각 타워가 Fire()에서 미리 곱해 넘긴다(TowerBase.EffectiveDamage).
+                // 그래서 여기서는 받은 값을 그대로 쓰면 되고, 예약량과 실제 피해가 어긋날 일이 없다.
+                _reserved = _target.ExpectedDamage(_damage, _source);
                 _target.ReserveIncoming(_reserved);
             }
 
             var sr = gameObject.AddComponent<SpriteRenderer>();
-            sr.sortingOrder = 8;
+            sr.sortingOrder = View.BandProjectile; // 투사체는 늘 배우들보다 앞에 그린다
             if (_arrowVisual)
             {
                 // 화살 스프라이트는 세로로 긴 텍스처라, 균등 스케일을 줘야 비율이 안 찌그러진다.
@@ -93,7 +94,10 @@ namespace Defense2D
                 }
             }
 
-            Vector3 dir = _target.transform.position - transform.position;
+            // [해설] 2.5D에서는 발밑(transform.position)이 아니라 몸통 중심(AimPoint)을 향해
+            // 날아가야 화살이 땅이 아니라 적에게 꽂히는 것처럼 보인다. 거리/범위 판정은
+            // 아래 Hit()에서 여전히 바닥 좌표로 하므로 게임 로직은 바뀌지 않는다.
+            Vector3 dir = _target.AimPoint - transform.position;
             float dist = dir.magnitude;
 
             if (_arrowVisual && dir.sqrMagnitude > 0.0001f)
@@ -112,7 +116,7 @@ namespace Defense2D
         ///   화살탑(ArrowTower)   _splashRadius = 0    → 아래 else 분기. 맞은 적 <b>한 명만</b>
         ///                        9 피해. 연사가 빨라(0.6초) 약한 슬로우가 거의 끊기지 않는다.
         ///   빙결탑(IceTower)     _splashRadius = 1.3  → 아래 if 분기. 착탄 지점 반경 1.3 안의
-        ///                        <b>모든 적</b>에게 각각 3 피해 + 강한 슬로우(50%, 1.8초).
+        ///                        <b>모든 적</b>에게 각각 4.5 피해 + 강한 슬로우(50%, 1.8초).
         ///   포격탑(CannonTower)  _splashRadius = 1.4  → 같은 if 분기. 반경 1.4 안의 <b>모든 적</b>
         ///                        에게 각각 26 피해(슬로우 없음).
         ///
@@ -120,12 +124,14 @@ namespace Defense2D
         /// 전부 받는다. 그래서 포격탑은 적이 몰린 곳에 쏠수록 총 피해가 배로 늘어난다.
         ///
         /// 한 대 맞을 때 적이 실제로 잃는 체력은 다음 세 단계를 모두 거친 값이다:
-        ///   ① 타워가 정한 기본 피해        — 각 타워 Setup()의 Damage (9 / 3 / 26)
-        ///   ② × 전역 공격력 배율            — 아래 mult. 보상 "타워 강화"를 고를 때마다 ×1.2
-        ///                                     (TowerBase.GlobalDamageMultiplier, 타워 공격에만 적용)
+        ///   ① 타워가 정한 기본 피해        — 각 타워 Setup()의 Damage (화살 9 / 빙결 4.5 / 포격 26 / 번개 14)
+        ///   ② × <b>그 타워 종류의</b> 강화 배율 — 보상에서 "화살탑 강화" 등을 고를 때마다 ×1.3 누적
+        ///                                     (TowerBase.DamageMultiplierFor). ★ 이 곱셈은 여기가 아니라
+        ///                                     각 타워의 Fire()에서 이미 끝난다(TowerBase.EffectiveDamage) —
+        ///                                     그래서 아래 코드는 받은 _damage를 그대로 쓴다.
         ///   ③ × 방패병 경감                 — 대상이 방패병이면 타워 피해만 50% 경감
         ///                                     (EnemyController.TakeDamage에서 처리)
-        /// 예) 방패병이 "타워 강화"를 한 번 고른 뒤 포격탑에 맞으면 26 × 1.2 × 0.5 = 15.6 피해.
+        /// 예) 방패병이 "포격탑 강화"를 한 번 고른 뒤 포격탑에 맞으면 26 × 1.3 × 0.5 = 16.9 피해.
         /// </summary>
         /// <summary>대상이 죽었을 때, 이 반경 안의 살아 있는 적으로 목표를 갈아탄다.
         /// 너무 크게 잡으면 화면 반대편까지 날아가는 이상한 궤적이 나오므로 적당히 좁게 둔다.</summary>
@@ -148,7 +154,10 @@ namespace Defense2D
             foreach (var e in EnemyController.Active)
             {
                 if (e == null || e.IsDead) continue;
-                float d = Vector2.Distance(transform.position, e.transform.position);
+                // [해설] 투사체는 탑 위(MuzzlePoint)에서 출발해 몸통 높이를 날아가므로,
+                // 적의 <b>발밑</b>과 거리를 재면 높이 차(최대 1.1) 때문에 실제보다 멀게 나온다.
+                // 같은 몸통 높이인 AimPoint끼리 비교해야 반경 2.5가 의도대로 동작한다.
+                float d = Vector2.Distance(transform.position, e.AimPoint);
                 if (d > RetargetRadius) continue;
 
                 if (d < fallbackDist) { fallbackDist = d; fallback = e; }
@@ -160,8 +169,7 @@ namespace Defense2D
             if (next == null) return false;
 
             _target = next;
-            float mult = (_source == DamageSource.Tower) ? TowerBase.GlobalDamageMultiplier : 1f;
-            _reserved = next.ExpectedDamage(_damage * mult, _source);
+            _reserved = next.ExpectedDamage(_damage, _source);
             next.ReserveIncoming(_reserved);
             return true;
         }
@@ -187,9 +195,6 @@ namespace Defense2D
             // 대상의 EffectiveHP가 실제보다 낮게 보이는 순간이 생긴다.
             ReleaseReservation();
 
-            // ②단계: 타워가 쏜 것만 전역 공격력 배율을 받는다(보스 소환물 등 타워가 아닌 피해원은 제외).
-            float mult = (_source == DamageSource.Tower) ? TowerBase.GlobalDamageMultiplier : 1f;
-
             if (_splashRadius > 0f)
             {
                 // 범위형(빙결탑·포격탑): 착탄 지점 주변의 적을 전부 훑어서 각각에게 같은 피해를 준다.
@@ -200,7 +205,7 @@ namespace Defense2D
                     if (e == null || e.IsDead) continue;
                     if (Vector2.Distance(e.transform.position, _target.transform.position) <= _splashRadius)
                     {
-                        e.TakeDamage(_damage * mult, _source);
+                        e.TakeDamage(_damage, _source);
                         // 슬로우는 넘어온 지속시간이 0보다 클 때만 건다 → 빙결탑은 걸고, 포격탑은 안 건다.
                         if (_slowDuration > 0f) e.ApplySlow(_slowFactor, _slowDuration);
                     }
@@ -209,7 +214,7 @@ namespace Defense2D
             else
             {
                 // 단일 대상형(화살탑): 조준했던 그 적에게만 피해와 약한 슬로우를 준다.
-                _target.TakeDamage(_damage * mult, _source);
+                _target.TakeDamage(_damage, _source);
                 if (_slowDuration > 0f) _target.ApplySlow(_slowFactor, _slowDuration);
             }
 

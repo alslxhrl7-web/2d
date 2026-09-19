@@ -26,6 +26,7 @@ namespace Defense2D
         private readonly List<GameObject> _towers = new List<GameObject>();
         private GameObject _ghost;
         private SpriteRenderer _ghostSr;
+        private Transform _ghostVisual;
         private GameObject _rangeGhost;
 
         // 철거 모드에서 현재 마우스가 가리키고 있는 타워와, 붉게 칠하기 전의 원래 색.
@@ -128,6 +129,7 @@ namespace Defense2D
             if (_rangeGhost != null) Destroy(_rangeGhost);
             _ghost = null;
             _ghostSr = null;
+            _ghostVisual = null;
             _rangeGhost = null;
         }
 
@@ -139,9 +141,12 @@ namespace Defense2D
             _ghostCycleTimer = GhostCycleInterval;
 
             _ghost = new GameObject("PlaceGhost");
-            _ghostSr = _ghost.AddComponent<SpriteRenderer>();
-            _ghostSr.sortingOrder = 20;
-            ApplyTowerVisual(_ghostSr, _ghost.transform, _ghostPreviewType); // 실제 배치될 타워와 동일한 아트/크기로 미리보기
+            // 실제 타워와 똑같은 자식 구조로 만들어야 미리보기와 결과물의 위치가 일치한다.
+            _ghostVisual = new GameObject("Visual").transform;
+            _ghostVisual.SetParent(_ghost.transform, false);
+            _ghostSr = _ghostVisual.gameObject.AddComponent<SpriteRenderer>();
+            _ghostSr.sortingOrder = View.BandGhost + 1;
+            ApplyTowerVisual(_ghostSr, _ghostVisual, _ghostPreviewType); // 실제 배치될 타워와 동일한 아트/크기로 미리보기
 
             EnsureRangeGhost();
             _rangeGhost.GetComponent<SpriteRenderer>().color = Color.white;
@@ -159,7 +164,7 @@ namespace Defense2D
             _rangeGhost = new GameObject("RangeGhost");
             var rsr = _rangeGhost.AddComponent<SpriteRenderer>();
             rsr.sprite = SpriteFactory.Ring(new Color(1, 1, 1, 0.35f));
-            rsr.sortingOrder = 19;
+            rsr.sortingOrder = View.BandGhost;
         }
 
         /// <summary>[해설] 예전에는 Random.Range(0, 3)으로 "3"이 하드코딩돼 있어서, TowerType에
@@ -191,7 +196,7 @@ namespace Defense2D
             {
                 _ghostCycleTimer = GhostCycleInterval;
                 _ghostPreviewType = RandomTowerType();
-                ApplyTowerVisual(_ghostSr, _ghost.transform, _ghostPreviewType);
+                ApplyTowerVisual(_ghostSr, _ghostVisual, _ghostPreviewType);
             }
 
             Vector3 pos = MouseWorld();
@@ -199,6 +204,9 @@ namespace Defense2D
             _rangeGhost.transform.position = pos;
 
             float range = TowerRangeFor(_ghostPreviewType);
+            // [해설] 사거리 표시는 바닥에 놓인 원이므로, 누운 평면 위에서는 타원으로 보여야 한다.
+            // 다만 실제 사거리 판정(Vector2.Distance)은 눌린 좌표계에서 그대로 하므로 판정 자체는
+            // 화면상 정원이다. 그래서 링도 누르지 않고 정원으로 두는 것이 판정과 정확히 일치한다.
             _rangeGhost.transform.localScale = Vector3.one * (range * 2f / 3f); // Ring 스프라이트 지름 3유닛 기준 보정
 
             bool valid = IsValidPlacement(pos);
@@ -207,10 +215,12 @@ namespace Defense2D
 
         private float TowerRangeFor(TowerType t) => t switch
         {
-            TowerType.Arrow => 3.2f,
-            TowerType.Ice => 2.6f,
-            TowerType.Cannon => 3.3f, // CannonTower.Setup()의 실제 Range와 일치시킴(2.9 → 3.3)
-            TowerType.Lightning => 3.0f, // LightningTower.Setup()의 Range와 일치
+            // ※ 각 타워 Setup()의 Range와 반드시 같아야 한다. 2.5D 전환에 맞춰 일괄 하향했다
+            //   (ArrowTower.Setup의 해설 참고).
+            TowerType.Arrow => 2.6f,
+            TowerType.Ice => 2.1f,
+            TowerType.Cannon => 2.7f,
+            TowerType.Lightning => 2.45f,
             _ => 2.5f
         };
 
@@ -255,7 +265,11 @@ namespace Defense2D
             // 다음 설치를 위해 미리보기를 즉시 다시 굴려서 "매번 새로 무작위" 느낌을 이어간다.
             _ghostPreviewType = RandomTowerType();
             _ghostCycleTimer = GhostCycleInterval;
-            ApplyTowerVisual(_ghostSr, _ghost.transform, _ghostPreviewType);
+            // ★ 버그 수정: 여기만 고스트 <b>루트</b>를 넘기고 있었다. ApplyTowerVisual은 넘겨받은
+            // 트랜스폼에 스케일과 발밑 오프셋을 쓰는데, 자식(_ghostVisual)이 이미 그 값을 갖고
+            // 있으므로 루트에까지 걸리면 스케일이 제곱으로 곱해져(0.155² ≈ 0.024) 미리보기가
+            // 1.5유닛에서 0.23유닛짜리 점으로 쪼그라들었다. 다른 호출부와 같이 자식을 넘긴다.
+            ApplyTowerVisual(_ghostSr, _ghostVisual, _ghostPreviewType);
         }
 
         // ---------- 타워 철거 ----------
@@ -268,7 +282,12 @@ namespace Defense2D
             foreach (var t in _towers)
             {
                 if (t == null) continue;
-                float d = Vector2.Distance(t.transform.position, pos);
+                // [해설] ★ 2.5D 전환의 부작용 수정. 타워 본체는 바닥 지점에 있고 그림은 그보다
+                // 위에 그려지므로, 바닥 지점으로만 거리를 재면 <b>눈에 보이는 탑 몸통을 클릭해도
+                // 안 잡히고</b> 발밑을 정확히 찍어야 하는 이상한 조작이 된다. 그림의 한가운데를
+                // 기준으로 재서, 보이는 대로 클릭하면 잡히게 한다.
+                Vector3 body = t.transform.position + new Vector3(0f, TowerArtWorldHeight * 0.5f, 0f);
+                float d = Vector2.Distance(body, pos);
                 if (d >= bestDist) continue;
                 bestDist = d;
                 best = t;
@@ -280,7 +299,8 @@ namespace Defense2D
         private void UpdateRemoveHover()
         {
             GameObject hit = IsPointerOverUI() ? null : FindTowerAt(MouseWorld());
-            var sr = hit != null ? hit.GetComponent<SpriteRenderer>() : null;
+            // 스프라이트는 타워 본체가 아니라 자식("Visual")에 있다(2.5D 발밑 정렬).
+            var sr = hit != null ? hit.GetComponentInChildren<SpriteRenderer>() : null;
             if (sr == _hoverSr) return; // 가리키는 대상이 그대로면 아무것도 하지 않는다
 
             ClearRemoveHover();
@@ -304,7 +324,7 @@ namespace Defense2D
             if (_hoverSr != null)
             {
                 // 호버 시작 시점에 찍어둔 색이 아니라 타워의 기본색으로 되돌린다(위 SpawnTower 해설 참고).
-                var hoverTb = _hoverSr.GetComponent<TowerBase>();
+                var hoverTb = _hoverSr.GetComponentInParent<TowerBase>();
                 _hoverSr.color = hoverTb != null ? hoverTb.BaseColor : _hoverOriginalColor;
             }
             _hoverSr = null;
@@ -349,6 +369,11 @@ namespace Defense2D
         /// 스프라이트 지정 로직을 한 곳에 모았다. Resources/Sprites/Tower_Arrow.png,
         /// Tower_Ice.png, Tower_Cannon.png, Tower_Lightning.png가 있으면 그 아트를 쓰고, 없으면 도형으로 대체한다.
         /// </summary>
+        /// <summary>
+        /// [해설] ★ 2.5D 전환. t는 이제 타워 본체가 아니라 <b>그림만 담는 자식</b>이다. 스케일을
+        /// 걸고 나서 몸 높이의 절반만큼 위로 올려, 스프라이트 아래쪽 끝이 바닥 지점에 닿게 한다.
+        /// 본체는 바닥 지점에 그대로 있으므로 사거리·배치 판정은 전혀 바뀌지 않는다.
+        /// </summary>
         private void ApplyTowerVisual(SpriteRenderer sr, Transform t, TowerType type)
         {
             Sprite art = Resources.Load<Sprite>($"Sprites/Tower_{type}");
@@ -378,15 +403,24 @@ namespace Defense2D
                 float shapeScale = TowerArtWorldHeight / shape.bounds.size.y;
                 t.localScale = new Vector3(shapeScale, shapeScale, 1f);
             }
+
+            // 발밑 기준으로 올린다. 어떤 아트/도형이 와도 최종 높이는 TowerArtWorldHeight이므로
+            // 올리는 양도 항상 그 절반이다.
+            t.localPosition = new Vector3(0f, TowerArtWorldHeight * 0.5f, 0f);
         }
 
         private void SpawnTower(TowerType type, Vector3 pos)
         {
             var go = new GameObject($"Tower_{type}");
             go.transform.position = pos;
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sortingOrder = 4;
-            ApplyTowerVisual(sr, go.transform, type);
+
+            // 그림은 자식에 둔다(2.5D 발밑 정렬 — ApplyTowerVisual 해설 참고).
+            var visual = new GameObject("Visual").transform;
+            visual.SetParent(go.transform, false);
+            var sr = visual.gameObject.AddComponent<SpriteRenderer>();
+            // 타워와 적을 같은 밴드에 두어, 적이 타워 앞을 지나가면 앞에 그려지게 한다.
+            sr.sortingOrder = View.Order(View.BandActor, pos.y);
+            ApplyTowerVisual(sr, visual, type);
 
             switch (type)
             {
@@ -407,48 +441,40 @@ namespace Defense2D
         }
 
         /// <summary>
-        /// 스테이지가 바뀌어 길이 교체된 직후, 새 길 기준으로 더 이상 유효하지 않은 자리에
-        /// 남아 있는 타워를 정리하고 건설비를 <b>전액</b> 돌려준다.
+        /// 스테이지가 바뀔 때 설치된 타워를 <b>전부</b> 철거하고 건설비를 전액 돌려준다.
         ///
-        /// [해설] ★ 버그 수정. 스테이지마다 사각형의 위치와 크기가 달라지는데(PathLibrary의
-        /// 도안 3종), 예전에는 길만 새로 그리고 이미 세워둔 타워는 그대로 뒀다. 그래서 스테이지가
-        /// 넘어가면 타워들이 새 길 <b>바깥으로 빠져나가거나 길 위에 걸쳐</b> 있는, 규칙상
-        /// 애초에 세울 수 없던 자리에 서 있게 됐다.
+        /// [해설] 스테이지마다 길(사각형 루프)의 위치와 크기가 통째로 달라진다. 처음에는 새 길
+        /// 기준으로 무효가 된 타워만 골라 지웠는데, 그러면 살아남은 타워와 새로 지은 타워가
+        /// 뒤섞여 배치가 누더기가 되고 "왜 저건 사라지고 저건 남았지?"를 플레이어가 알 수 없다.
+        /// 판을 통째로 비우면 규칙이 "스테이지가 바뀌면 처음부터 다시 짠다" 한 줄로 끝나고,
+        /// 스테이지 전환이 분명한 분기점으로 읽힌다.
         ///
         /// 환불을 50%(철거와 동일)가 아니라 전액으로 하는 이유: 플레이어가 잘못 지은 게 아니라
-        /// 게임 쪽 사정으로 철거되는 것이라, 손해를 지우면 스테이지 전환이 그냥 벌점이 된다.
-        ///
-        /// 타워끼리의 최소 간격은 다시 보지 않는다 — 그 조건은 길이 바뀌어도 변하지 않으므로
-        /// 이미 지켜져 있고, 여기서 또 검사하면 멀쩡한 이웃 타워끼리 서로를 무효로 만든다.
+        /// 게임 쪽 사정으로 부수는 것이라, 손해를 지우면 스테이지 전환이 그냥 벌점이 된다.
+        /// 전액을 돌려주므로 새 길에서 같은 규모로 다시 지을 수 있다.
         /// </summary>
-        public void RevalidateTowersForNewPath()
+        public void ClearAllTowersForNewStage()
         {
             _towers.RemoveAll(t => t == null);
+            if (_towers.Count == 0) return;
 
-            int removed = 0, refunded = 0;
-            for (int i = _towers.Count - 1; i >= 0; i--)
+            int refunded = 0;
+            foreach (var go in _towers)
             {
-                var go = _towers[i];
-                Vector3 pos = go.transform.position;
-
-                bool stillValid = Path.ContainsPoint(pos)
-                                  && Path.DistanceToNearestPath(pos) >= GameConstants.MinDistanceFromPath;
-                if (stillValid) continue;
-
                 var tb = go.GetComponent<TowerBase>();
-                TowerType type = tb != null ? tb.Type : TowerType.Arrow;
-                refunded += GameConstants.CostFor(type); // 전액 환불
-                removed++;
-
-                _towers.RemoveAt(i);
+                refunded += GameConstants.CostFor(tb != null ? tb.Type : TowerType.Arrow);
                 Destroy(go); // TowerBase.OnDisable이 Active 목록에서도 빼 준다
             }
+            int removed = _towers.Count;
+            _towers.Clear();
 
-            if (removed == 0) return;
-
+            CancelMode();       // 배치/철거 중이었다면 모드도 닫는다
             ClearRemoveHover(); // 방금 파괴된 타워를 가리키고 있었을 수 있다
+
+            // [해설] 배너는 호출부(GameManager.OnWaveClearedHandler)가 스테이지 클리어 소식과
+            // 합쳐서 하나만 띄운다. 여기서 또 띄우면 그 배너를 같은 프레임에 덮어 버린다.
+            // 대신 환불 금액은 알려줘야 하므로 골드 표시만 갱신한다.
             Game.RefundGold(refunded);
-            Game.ShowBanner($"길이 바뀌어 타워 {removed}개를 철거했습니다 — 골드 {refunded} 전액 반환");
         }
 
         /// <summary>보스 능력(2번, 5번 페이즈)으로 임의의 타워를 잠시 무력화한다.</summary>

@@ -46,7 +46,14 @@ namespace Defense2D.EditorTools
         ///              다만 환경에 따라 실패 사례가 보고되므로, 바꾼 뒤에는 반드시 itch.io에
         ///              올려서 실제로 뜨는지 확인할 것.
         /// </summary>
-        private const bool UseWebGlCompression = false;
+        // [해설] ★ const가 아니라 static readonly인 이유 (경고 CS0162 방지).
+        // const bool은 <b>컴파일 시점에 값이 확정</b>되므로, 아래 ApplyWebGlSettings의
+        // "if (UseWebGlCompression)" 블록이 컴파일러 눈에는 절대 실행될 수 없는 코드로 보인다.
+        // 그래서 유니티 콘솔에 "warning CS0162: Unreachable code detected"가 뜬다.
+        // static readonly는 런타임에 읽는 값이라 컴파일러가 분기를 접지 않으므로 경고가 사라진다.
+        // 켜고 끄는 방법은 똑같이 이 한 줄을 true/false로 바꾸는 것이다.
+        // ※ 다시 const로 되돌리면 그 경고가 그대로 되살아난다.
+        private static readonly bool UseWebGlCompression = false;
 
         [MenuItem("Defense2D/Windows 실행 파일 빌드", false, 10)]
         public static void BuildWindows()

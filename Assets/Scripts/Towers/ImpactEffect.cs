@@ -33,16 +33,22 @@ namespace Defense2D
         {
             var go = new GameObject("FrostZone");
             go.transform.position = new Vector3(pos.x, pos.y, 0f);
-            go.transform.localScale = Vector3.zero;
 
-            var glow = NewChild(go.transform, "Glow", -1);
+            var glow = NewChild(go.transform, "Glow", View.Order(View.BandGroundFx, pos.y));
             glow.sprite = SpriteFactory.SoftGlow(new Color(0.55f, 0.88f, 1f, 0.5f));
 
-            var rim = NewChild(go.transform, "Rim", -1);
+            var rim = NewChild(go.transform, "Rim", View.Order(View.BandGroundFx, pos.y) + 1);
             rim.sprite = SpriteFactory.SoftRing(new Color(0.85f, 0.98f, 1f, 0.75f), 64, 7f);
 
             // 두 스프라이트 모두 size=64 기준(scale 1 = 반지름 1유닛)이라, 원하는 반경만큼
             // 부모(go)를 그대로 스케일해도 둘 다 같은 비율로 함께 커진다.
+            // [해설] ★ 한 번 눌렀다가 되돌린 부분. 2.5D니까 바닥 장판도 타원이어야 "누워 있다"로
+            // 보이지만, <b>피해·슬로우 판정은 눌리지 않은 정원</b>이다(Projectile.Hit의
+            // Vector2.Distance는 눌린 좌표계에서 그대로 재므로 화면상 정원이 된다).
+            // 그림만 타원으로 두면 "장판 밖에 있는 적이 얼어붙는" 상황이 생겨서, 플레이어가
+            // 보고 판단할 근거가 사라진다. 사거리 링을 정원으로 둔 것과 같은 이유로,
+            // 보이는 것과 맞는 것을 일치시키는 쪽을 택했다.
+            go.transform.localScale = Vector3.zero;
             EffectRunner.Run(go, GrowThenFade(go.transform, new[] { glow, rim }, radius, duration));
         }
 
@@ -57,11 +63,11 @@ namespace Defense2D
             var go = new GameObject("Explosion");
             go.transform.position = new Vector3(pos.x, pos.y, 0f);
 
-            var flash = NewChild(go.transform, "Flash", 9);
+            var flash = NewChild(go.transform, "Flash", View.Order(View.BandEffect, pos.y));
             flash.sprite = SpriteFactory.SoftGlow(new Color(1f, 0.9f, 0.65f, 0.95f));
             flash.transform.localScale = Vector3.zero;
 
-            var ring = NewChild(go.transform, "Shockwave", 9);
+            var ring = NewChild(go.transform, "Shockwave", View.Order(View.BandEffect, pos.y) + 1);
             ring.sprite = SpriteFactory.SoftRing(new Color(1f, 0.6f, 0.28f, 0.85f), 64, 7f);
             ring.transform.localScale = Vector3.zero;
 
@@ -121,7 +127,7 @@ namespace Defense2D
         /// <summary>두 점을 잇는 얇은 사각형 하나를 만든다. 길이만큼 늘이고 방향만큼 회전시킨다.</summary>
         private static SpriteRenderer MakeBoltSegment(Transform parent, Vector3 p0, Vector3 p1)
         {
-            var sr = NewChild(parent, "BoltSegment", 9); // 투사체(8)보다 위, 폭발(9)과 같은 층
+            var sr = NewChild(parent, "BoltSegment", View.Order(View.BandEffect, (p0.y + p1.y) * 0.5f));
             sr.sprite = BoltSprite;
             sr.color = new Color(1f, 0.95f, 0.55f, 0.95f);
 
@@ -165,7 +171,7 @@ namespace Defense2D
             return sr;
         }
 
-        private static IEnumerator GrowThenFade(Transform t, SpriteRenderer[] srs, float targetScale, float duration)
+        private static IEnumerator GrowThenFade(Transform t, SpriteRenderer[] srs, float targetScale, float duration, float ySquash = 1f)
         {
             const float growTime = 0.15f;
             var baseColors = new Color[srs.Length];
@@ -175,10 +181,11 @@ namespace Defense2D
             while (elapsed < growTime)
             {
                 elapsed += Time.deltaTime;
-                t.localScale = Vector3.one * (targetScale * EaseOutQuad(Mathf.Clamp01(elapsed / growTime)));
+                float g = targetScale * EaseOutQuad(Mathf.Clamp01(elapsed / growTime));
+                t.localScale = new Vector3(g, g * ySquash, 1f);
                 yield return null;
             }
-            t.localScale = Vector3.one * targetScale;
+            t.localScale = new Vector3(targetScale, targetScale * ySquash, 1f);
 
             float fadeTime = Mathf.Max(0.1f, duration - growTime);
             elapsed = 0f;
@@ -209,6 +216,7 @@ namespace Defense2D
                 elapsed += Time.deltaTime;
 
                 float ft = Mathf.Clamp01(elapsed / flashTime);
+                // 폭발 범위도 판정과 같은 정원으로 그린다(위 SpawnFrostZone 해설 참고).
                 flash.transform.localScale = Vector3.one * (radius * 0.9f * EaseOutQuad(ft));
                 flash.color = new Color(flashC0.r, flashC0.g, flashC0.b, flashC0.a * (1f - ft));
 

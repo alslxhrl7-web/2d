@@ -33,6 +33,29 @@ namespace Defense2D
         /// BuildGame()이 다시 돌게 했다. 구독 자체는 static이라 씬을 넘나들어도 살아남으므로
         /// _sceneHookInstalled로 중복 구독을 막는다.
         /// </summary>
+        /// <summary>
+        /// [해설] ★ 에디터 "이중 조립" 버그 수정. 이 프로젝트는 Edit &gt; Project Settings &gt;
+        /// Editor에서 <b>Reload Domain이 꺼져</b> 있다(EditorSettings.asset의
+        /// EnterPlayModeOptions = 1). 그러면 Play를 멈춰도 C#의 static 값과 static 이벤트 구독이
+        /// 그대로 살아남는다. 그 상태로 다시 Play를 누르면:
+        ///   ① 씬이 새로 로드되면서 <b>지난 세션에 걸어둔</b> sceneLoaded 구독이 살아 있어 BuildGame()
+        ///   ② Bootstrap()도 다시 불리는데 _sceneHookInstalled가 이미 true라 구독만 건너뛰고 BuildGame()
+        /// 이렇게 게임이 두 벌 만들어졌다 — GameManager 둘(각자 골드 30), WaveManager 둘(각자 60마리
+        /// 스폰), Canvas 둘, BuildManager 둘. 빌드에서는 실행할 때마다 도메인이 새로 뜨므로 멀쩡하고,
+        /// <b>에디터에서만</b> 깨지는 종류라 더 찾기 어렵다.
+        ///
+        /// SubsystemRegistration은 Play가 시작될 때 AfterSceneLoad보다 <b>먼저</b>, 그리고 도메인
+        /// 리로드 여부와 무관하게 매번 불린다. 여기서 구독을 확실히 떼어 두면, 아래 Bootstrap이
+        /// 매 세션 정확히 한 번만 구독하게 되어 조립도 한 번만 일어난다.
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetSceneHook()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded; // 구독 안 돼 있으면 아무 일도 안 일어난다
+            _sceneHookInstalled = false;
+            _pathVisualRoot = null;
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
         {
@@ -64,10 +87,14 @@ namespace Defense2D
             // (timeScale=0) 상태에서 "다시 시작"을 누르면 새 게임이 얼어붙은 채로 시작되므로,
             // 조립할 때마다 반드시 정상 속도로 되돌린다.
             Time.timeScale = 1f;
-            TowerBase.GlobalDamageMultiplier = 1f;
+            TowerBase.ResetDamageMultipliers(); // 타워 종류별 강화 배율을 전부 1로
             TowerBase.Active.Clear();
             EnemyController.Active.Clear();
-            _pathVisualRoot = null; // 이전 씬과 함께 이미 파괴된 참조
+            // [해설] 보통은 씬과 함께 이미 파괴됐지만, 도메인 리로드가 꺼진 에디터에서는 살아
+            // 남을 수 있다. null로만 비우면 그 오브젝트가 고아가 되어 도로가 두 겹으로 남으므로,
+            // 아직 살아 있으면 직접 파괴한 뒤에 참조를 비운다.
+            if (_pathVisualRoot != null) Object.Destroy(_pathVisualRoot);
+            _pathVisualRoot = null;
         }
 
         private static void BuildGame()
@@ -140,8 +167,30 @@ namespace Defense2D
                 camGO.AddComponent<AudioListener>();
             }
             cam.orthographic = true;
-            cam.orthographicSize = 6.2f;
-            cam.transform.position = new Vector3(0, 0, -10f);
+            // [해설] ★ 2.5D 프레이밍. 바닥을 세로로 누르면서(View.GroundSquash) 길이 차지하는
+            // 세로 폭이 ±4.8에서 약 ±3.0으로 줄었다. 대신 타워·적이 이제 발밑 기준으로 서 있어서
+            // 바닥 지점보다 위로 최대 2.7유닛(보스 몸 2.2 + 체력바)까지 삐져나온다.
+            // 그래서 필요한 화면 범위가 아래로는 -3.3, 위로는 +5.9로 <b>위아래가 비대칭</b>이다.
+            // ★ 길을 상하좌우 3칸씩 넓히면서(PathLibrary) 카메라도 같이 키웠다.
+            // 확장 후 가장 넓은 3번 도안은 x -6.26~7.86, 눌린 y -4.44~4.32를 차지하고,
+            // 그 위에 보스(몸 2.0 + 체력바)가 6.5까지 솟는다. 그래서 필요한 범위는
+            // y -4.5~6.8로 여전히 위아래가 비대칭이다. 카메라를 1.15로 올리고 크기를 5.7로
+            // 잡으면 보이는 범위가 y -4.55~6.85, x ±10.1(16:9)이 되어 전부 들어온다.
+            // ★ 아래 두 값은 "웨이포인트 좌표"가 아니라 <b>실제로 그려지는 도로 타일의 바깥
+            //   끝</b>까지 담아야 한다. 타일은 SpriteFactory.Square(64px @ PPU 32 = 2유닛)를
+            //   (0.62, 0.62*0.62)로 줄인 것이라 1.24 x 0.77유닛이고, 중심에서 아래로 0.384,
+            //   옆으로 0.62가 더 튀어나온다. 이걸 빼먹어서 3스테이지 아래쪽 도로가 0.27만큼
+            //   잘려 있었다. 아래로 0.384를 더 확보하도록 크기를 키우고 중심을 내렸다.
+            cam.orthographicSize = 6.0f;
+            cam.transform.position = new Vector3(0, 1.05f, -10f);
+
+            // ★ 가로는 화면비에 따라 달라진다. 3스테이지 도로 오른쪽 끝이 x = 8.48인데,
+            //   16:9에서는 반폭이 10.7로 넉넉하지만 4:3(반폭 8.0)에서는 잘린다. 빌드 창은
+            //   크기 조절이 가능하고 WebGL 임베드 비율도 제각각이므로, 화면이 좁으면
+            //   크기를 키워서 가로를 확보한다(세로 여백이 늘어날 뿐 잘리지는 않는다).
+            const float NeededHalfWidth = 8.6f;
+            if (cam.orthographicSize * cam.aspect < NeededHalfWidth)
+                cam.orthographicSize = NeededHalfWidth / Mathf.Max(0.5f, cam.aspect);
             cam.backgroundColor = new Color(0.06f, 0.08f, 0.14f);
             cam.clearFlags = CameraClearFlags.SolidColor;
         }
@@ -190,10 +239,11 @@ namespace Defense2D
                     var go = new GameObject("RoadTile");
                     go.transform.SetParent(parent, false);
                     go.transform.position = p;
-                    go.transform.localScale = Vector3.one * 0.62f;
+                    // 바닥에 깔리는 타일이므로 세로를 같이 눌러야 평면이 누워 보인다.
+                    go.transform.localScale = new Vector3(0.62f, 0.62f * View.GroundSquash, 1f);
                     var sr = go.AddComponent<SpriteRenderer>();
                     sr.sprite = tileSprite;
-                    sr.sortingOrder = -5;
+                    sr.sortingOrder = View.Order(View.BandRoad, p.y);
                 }
             }
         }
@@ -217,10 +267,10 @@ namespace Defense2D
             var go = new GameObject("SpawnRoadTint");
             go.transform.SetParent(parent, false);
             go.transform.position = pos;
-            go.transform.localScale = Vector3.one * tileScale;
+            go.transform.localScale = new Vector3(tileScale, tileScale * View.GroundSquash, 1f);
             var sr = go.AddComponent<SpriteRenderer>();
             sr.sprite = SpriteFactory.Square(color, color * 0.85f);
-            sr.sortingOrder = -4;
+            sr.sortingOrder = View.Order(View.BandSpawn, pos.y);
         }
     }
 }

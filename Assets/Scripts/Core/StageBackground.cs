@@ -24,8 +24,8 @@ namespace Defense2D
     public class StageBackground : MonoBehaviour
     {
         // 배경은 도로 타일(-5)보다 훨씬 뒤에 깔려야 하므로 아주 낮은 정렬 순서를 쓴다.
-        private const int BaseSortingOrder = -20;
-        private const int OverlaySortingOrder = -19;
+        private const int BaseSortingOrder = View.BandBackground;
+        private const int OverlaySortingOrder = View.BandBackground + 1;
 
         /// <summary>배경이 바뀔 때 교차 페이드에 걸리는 시간(초). 웨이브 시작과 함께 바뀌므로
         /// 너무 빠르면 툭 끊겨 보이고, 너무 느리면 전투 중에 계속 어른거린다.</summary>
@@ -233,6 +233,11 @@ namespace Defense2D
 
             float scale = Mathf.Max(worldWidth / size.x, worldHeight / size.y);
             sr.transform.localScale = new Vector3(scale, scale, 1f);
+
+            // [해설] 2.5D 전환으로 카메라를 위로 살짝 올렸기 때문에(GameBootstrapper.SetupCamera),
+            // 배경을 원점에 두면 화면 아래쪽에 빈 띠가 생긴다. 항상 카메라 중심에 맞춰 준다.
+            Vector3 camPos = cam.transform.position;
+            sr.transform.position = new Vector3(camPos.x, camPos.y, sr.transform.position.z);
         }
 
         private static Sprite FirstAvailable(Sprite a, Sprite b, Sprite c) => a != null ? a : (b != null ? b : c);

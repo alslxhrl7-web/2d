@@ -21,7 +21,7 @@ namespace Defense2D
         public void Setup()
         {
             Type = TowerType.Cannon;
-            Range = 3.3f; // 사거리 소폭 증가 (2.9 → 3.3)
+            Range = 2.7f; // ※ BuildManager.TowerRangeFor(Cannon)과 반드시 같아야 한다
             FireInterval = 1.5f;
             Damage = 26f; // 공격력 증가 (14 → 26)
         }
@@ -32,13 +32,18 @@ namespace Defense2D
         protected override void Fire(EnemyController target)
         {
             var go = new GameObject("CannonShot");
-            go.transform.position = transform.position;
+            go.transform.position = MuzzlePoint; // 2.5D: 바닥이 아니라 탑 윗부분에서 발사
             var p = go.AddComponent<Projectile>();
             // splashRadius 자리에 CannonSplashRadius(0보다 큼)를 넘기면, Projectile.Hit()에서
             // 착탄 지점 기준 그 반경 안의 모든 적을 찾아 각각 Damage만큼 피해를 준다.
             // cannonballVisual: true → 주황색 원 대신 검은 포탄 모양으로 날아간다.
             // impactEffect: Explosion → 맞는 순간 폭발 이펙트가 터진다.
-            p.Init(target, 6f, Damage, DamageSource.Tower, Color.black, CannonSplashRadius,
+            // [해설] ★ 몹 이동속도를 +50% 올리면서 투사체 속도도 같이 올렸다. 예전 포탄 속도 6은
+            // 돌진병의 후반 속도(3.9 × 1.6 = 6.24)보다 <b>느려서</b>, 직선 구간을 달아나는
+            // 돌진병을 포탄이 영영 따라잡지 못하는 상황이 생겼다(투사체는 수명 제한이 없어서
+            // 계속 쫓아다니기만 한다). 화살 9→12, 얼음 7→10, 포탄 6→9로 올려 가장 빠른 적
+            // (보스 5의 3페이즈 돌진 9.9)보다 화살이 빠르도록 맞췄다.
+            p.Init(target, 9f, EffectiveDamage, DamageSource.Tower, Color.black, CannonSplashRadius,
                 impactEffect: ImpactEffectKind.Explosion, cannonballVisual: true);
         }
     }

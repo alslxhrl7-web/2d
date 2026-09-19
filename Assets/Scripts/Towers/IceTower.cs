@@ -21,7 +21,7 @@ namespace Defense2D
         public void Setup()
         {
             Type = TowerType.Ice;
-            Range = 2.6f;
+            Range = 2.1f;
             FireInterval = 1.1f;
             Damage = 4.5f; // 밸런스 조정 (3 → 4.5)
         }
@@ -36,12 +36,12 @@ namespace Defense2D
         protected override void Fire(EnemyController target)
         {
             var go = new GameObject("IceShot");
-            go.transform.position = transform.position;
+            go.transform.position = MuzzlePoint; // 2.5D: 바닥이 아니라 탑 윗부분에서 발사
             var p = go.AddComponent<Projectile>();
             // splashRadius 자리에 IceRadius(0보다 큼)를 넘겨서, 착탄 지점 반경 안의 모든 적에게
             // 피해와 슬로우가 함께 적용되는 "범위 슬로우"로 동작한다.
             // impactEffect: FrostZone → 착탄 지점에 애니비아 장판처럼 서리 장판이 깔린다.
-            p.Init(target, 7f, Damage, DamageSource.Tower, new Color(0.6f, 0.95f, 1f),
+            p.Init(target, 10f, EffectiveDamage, DamageSource.Tower, new Color(0.6f, 0.95f, 1f),
                 IceRadius, IceSlowFactor, IceSlowDuration, impactEffect: ImpactEffectKind.FrostZone);
         }
     }
