@@ -19,6 +19,17 @@ namespace Defense2D
         /// 종류별로 나누면 "지금 화살탑이 많으니 화살탑을 키울까, 아니면 포격탑 하나에
         /// 몰아줄까" 같은 판단이 생긴다.
         ///
+        /// [해설] ★★ 누적 방식을 <b>곱셈에서 덧셈으로</b> 바꿨다. 이 게임 최대의 밸런스 붕괴
+        /// 원인이 바로 이 항이었다. 예전에는 고를 때마다 ×1.3이 곱해졌는데, 75웨이브 동안
+        /// 이 보상을 고르다 보면 1.3의 거듭제곱이 되어 배율이 수천만 배까지 치솟는다.
+        /// 반면 적은 웨이브당 체력이 +10씩 <b>더해질</b> 뿐이라 선형으로만 강해진다.
+        /// 지수 대 선형이라 상수를 아무리 조정해도 교차점만 뒤로 밀릴 뿐, 어느 시점부터는
+        /// 반드시 무위험 상태가 된다(실제로 5웨이브 이후 동시 생존 적이 0~1마리였다).
+        ///
+        /// 이제 한 번 고를 때마다 <b>기본 공격력의 25%p</b>가 더해진다. 4번 고르면 2배,
+        /// 8번이면 3배 — 적의 성장과 같은 "직선" 단위가 되어 두 곡선이 나란히 간다.
+        /// 값 자체가 배율(1.0에서 시작)인 것은 그대로라 EffectiveDamage 쪽은 바뀌지 않는다.
+        ///
         /// static이라 이미 세워 둔 타워에도 소급 적용되고, 씬을 다시 불러와도 남으므로
         /// GameBootstrapper.ResetStaticState에서 반드시 되돌려야 한다.
         /// 배열 크기는 enum 길이를 따라가므로 타워를 추가해도 그대로 동작한다.
@@ -38,10 +49,12 @@ namespace Defense2D
             return (i >= 0 && i < _damageMultipliers.Length) ? _damageMultipliers[i] : 1f;
         }
 
-        public static void MultiplyDamage(TowerType type, float factor)
+        /// <summary>그 종류의 공격력 배율에 <b>더한다</b>(곱하지 않는다 — 위 해설 참고).
+        /// amount 0.25는 "기본 공격력의 25%p 증가"를 뜻한다.</summary>
+        public static void AddDamageBonus(TowerType type, float amount)
         {
             int i = (int)type;
-            if (i >= 0 && i < _damageMultipliers.Length) _damageMultipliers[i] *= factor;
+            if (i >= 0 && i < _damageMultipliers.Length) _damageMultipliers[i] += amount;
         }
 
         /// <summary>새 게임 시작 시 모든 종류의 배율을 1로 되돌린다.</summary>

@@ -61,6 +61,9 @@ namespace Defense2D
         private Button _speedButton;
         private Text _finaleTimerText;
 
+        /// <summary>준비 단계에 "다음 웨이브: 잡몹 40 · 차저 20" 식으로 구성을 보여주는 줄.</summary>
+        private Text _wavePreviewText;
+
         private static readonly Dictionary<int, string> BossHints = new Dictionary<int, string>
         {
             { 1, "패턴: 직선으로 돌진하고, 돌진 직후 잠시 약점이 노출됩니다." },
@@ -76,14 +79,18 @@ namespace Defense2D
             new UpgradeOption{ Kind = UpgradeKind.GoldGain, Label = "재화 감각", Description = "골드 획득량 +10%" },
             // ★ "모든 타워 +20%" 하나를 타워 종류별 4개로 쪼갰다. 매 보상마다 아래 6개 중
             //   3개가 무작위로 뜨므로, 지금 깔아 둔 구성에 맞춰 무엇을 키울지 고르게 된다.
+            // ★★ 누적이 곱셈(×1.3)에서 덧셈(+25%p)으로 바뀌었다. 곱셈일 때는 같은 종류를
+            //   계속 고르는 것이 언제나 정답이었지만(지수), 덧셈이면 이미 키운 종류를 더
+            //   키우든 새 종류를 키우든 증가폭이 같아서 "지금 뭘 많이 깔았나"가 실제로
+            //   판단 근거가 된다. 밸런스 근거는 GameManager.TowerDamageBonus 해설 참고.
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Arrow,
-                               Label = "화살탑 강화", Description = "화살탑 공격력 +30%" },
+                               Label = "화살탑 강화", Description = "화살탑 공격력 +25%p (기본값 기준 가산)" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Ice,
-                               Label = "빙결탑 강화", Description = "빙결탑 공격력 +30%" },
+                               Label = "빙결탑 강화", Description = "빙결탑 공격력 +25%p (기본값 기준 가산)" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Cannon,
-                               Label = "포격탑 강화", Description = "포격탑 공격력 +30%" },
+                               Label = "포격탑 강화", Description = "포격탑 공격력 +25%p (기본값 기준 가산)" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Lightning,
-                               Label = "번개탑 강화", Description = "번개탑 공격력 +30%" },
+                               Label = "번개탑 강화", Description = "번개탑 공격력 +25%p (기본값 기준 가산)" },
         };
 
         /// <summary>프로젝트에 내장한 한글 폰트의 Resources 경로(확장자 제외).</summary>
@@ -435,41 +442,101 @@ namespace Defense2D
 
         // ---------- 건설 메뉴 ----------
 
+        /// <summary>건설 메뉴에 놓이는 타워 종류 버튼들. 지금 고른 종류를 밝게 강조하기 위해
+        /// 참조를 들고 있는다(RefreshTowerTypeButtons).</summary>
+        private Button[] _towerTypeButtons;
+
+        /// <summary>숫자키와 버튼의 배치 순서. BuildManager.HandleTowerTypeKeys와 반드시 같아야
+        /// 한다 (1 화살 · 2 빙결 · 3 번개 · 4 포격).</summary>
+        private static readonly TowerType[] TowerButtonOrder =
+        {
+            TowerType.Arrow, TowerType.Ice, TowerType.Lightning, TowerType.Cannon
+        };
+
+        /// <summary>타워 종류별 버튼 바탕색(고르지 않은 상태). 고른 종류는
+        /// RefreshTowerTypeButtons가 더 밝게 만든다.</summary>
+        private static Color TowerButtonColor(TowerType t) => t switch
+        {
+            TowerType.Arrow => new Color(0.26f, 0.42f, 0.30f, 0.90f),
+            TowerType.Ice => new Color(0.24f, 0.38f, 0.52f, 0.90f),
+            TowerType.Lightning => new Color(0.42f, 0.36f, 0.20f, 0.90f),
+            TowerType.Cannon => new Color(0.44f, 0.30f, 0.24f, 0.90f),
+            _ => new Color(0.22f, 0.26f, 0.34f, 0.90f)
+        };
+
         private void BuildBuildMenu()
         {
-            // [해설] 타워 종류를 직접 고르지 않고, 설치 시점에 타입이 무작위로 결정되도록 바뀌면서
-            // 타입별 버튼 3개 대신 "타워 설치" 버튼 하나로 단순화했다. 이후 "타워 철거" 버튼이
-            // 하나 더 추가되면서 패널 높이를 210 → 268로 늘렸다.
+            // [해설] ★ 타워 종류를 플레이어가 고르게 바뀌면서, "타워 설치" 버튼 하나를 종류별
+            // 버튼 네 개(2×2 격자)로 되돌렸다. 각 버튼에 숫자키와 비용을 함께 적어서, 메뉴를
+            // 열지 않고도 1~4로 바로 고를 수 있다는 것을 알 수 있게 했다.
+            // 버튼이 늘어난 만큼 패널 높이를 268 → 290으로 키웠다.
             _buildPanel = CreatePanel("BuildMenu", _canvas.transform, new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0),
-                new Vector2(220, 268), new Vector2(-20, 20), new Color(0.05f, 0.08f, 0.15f, 0.92f)).gameObject;
+                new Vector2(220, 290), new Vector2(-20, 20), new Color(0.05f, 0.08f, 0.15f, 0.92f)).gameObject;
 
             CreateText("BuildTitle", _buildPanel.transform, "건설 메뉴 (TAB)", 16, Color.white, TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(200, 24), new Vector2(0, -16));
 
             CreateText("BuildInfo", _buildPanel.transform,
-                $"화살탑/빙결탑 {GameConstants.TowerCost} · 번개탑 {GameConstants.LightningTowerCost} · 포격탑 {GameConstants.CannonTowerCost}\n설치 시 타입이 무작위로 결정됩니다\n철거하면 건설비의 {GameConstants.TowerRefundPercent}%를 돌려받습니다",
+                $"숫자키 1~4로도 고를 수 있습니다\n철거하면 건설비의 {GameConstants.TowerRefundPercent}%를 돌려받습니다",
                 12, new Color(1, 1, 1, 0.75f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                new Vector2(204, 54), new Vector2(0, -62));
+                new Vector2(204, 36), new Vector2(0, -48));
 
-            CreateButton("PlaceBtn", _buildPanel.transform, "타워 설치", new Vector2(190, 44), new Vector2(0, -122),
-                new Vector2(0.5f, 1), new Vector2(0.5f, 1), () => Build.BeginPlacement(),
-                new Color(0.3f, 0.4f, 0.6f, 0.9f));
+            // 2×2 격자. 왼쪽 열 x = -49, 오른쪽 열 x = +49.
+            _towerTypeButtons = new Button[TowerButtonOrder.Length];
+            for (int i = 0; i < TowerButtonOrder.Length; i++)
+            {
+                TowerType t = TowerButtonOrder[i];   // 아래 람다가 잡을 값을 지역 변수로 고정한다
+                float x = (i % 2 == 0) ? -49f : 49f;
+                float y = -84f - (i / 2) * 48f;
+                _towerTypeButtons[i] = CreateButton($"TowerBtn_{t}", _buildPanel.transform,
+                    $"{i + 1} {BuildManager.TowerLabel(t)}\n{GameConstants.CostFor(t)}G",
+                    new Vector2(94, 44), new Vector2(x, y),
+                    new Vector2(0.5f, 1), new Vector2(0.5f, 1), () => Build.SelectTowerType(t),
+                    TowerButtonColor(t));
+                var label = _towerTypeButtons[i].GetComponentInChildren<Text>();
+                if (label != null) label.fontSize = 13;
+            }
 
-            // [해설] 철거는 되돌리기 어려운 동작이므로, 설치 버튼(푸른 계열)과 확실히 구분되도록
+            // [해설] 철거는 되돌리기 어려운 동작이므로, 설치 버튼들과 확실히 구분되도록
             // 붉은 계열 색을 줬다.
-            CreateButton("RemoveBtn", _buildPanel.transform, "타워 철거", new Vector2(190, 44), new Vector2(0, -172),
+            CreateButton("RemoveBtn", _buildPanel.transform, "타워 철거", new Vector2(190, 40), new Vector2(0, -198),
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), () => Build.BeginRemoval(),
                 new Color(0.52f, 0.24f, 0.26f, 0.92f));
 
             // 건설 메뉴 안에서도 현재 보유 골드가 바로 보이도록 표시 (실제 값은 RefreshGold에서 갱신)
             _buildGoldText = CreateText("BuildGoldText", _buildPanel.transform, "보유 골드 0", 15,
                 new Color(1f, 0.85f, 0.3f), TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                new Vector2(200, 22), new Vector2(0, -222));
+                new Vector2(200, 22), new Vector2(0, -240));
 
             _buildPanel.SetActive(false);
+            RefreshTowerTypeButtons();
         }
 
-        public void SetBuildMenuOpen(bool open) => _buildPanel.SetActive(open);
+        /// <summary>지금 고른 타워 종류의 버튼만 밝게 만든다. BuildManager가 종류를 바꿀 때마다
+        /// 호출한다.
+        /// [해설] 선택 상태가 화면에 보이지 않으면 "내가 뭘 고른 거지"를 고스트로만 판단해야 해서,
+        /// 메뉴를 열어 둔 채 마우스를 옮길 때 특히 헷갈린다.</summary>
+        public void RefreshTowerTypeButtons()
+        {
+            if (_towerTypeButtons == null || Build == null) return;
+            for (int i = 0; i < _towerTypeButtons.Length; i++)
+            {
+                var btn = _towerTypeButtons[i];
+                if (btn == null) continue;
+                var img = btn.GetComponent<Image>();
+                if (img == null) continue;
+                Color c = TowerButtonColor(TowerButtonOrder[i]);
+                img.color = (TowerButtonOrder[i] == Build.SelectedType)
+                    ? new Color(Mathf.Min(1f, c.r * 1.8f), Mathf.Min(1f, c.g * 1.8f), Mathf.Min(1f, c.b * 1.8f), 1f)
+                    : c;
+            }
+        }
+
+        public void SetBuildMenuOpen(bool open)
+        {
+            _buildPanel.SetActive(open);
+            if (open) RefreshTowerTypeButtons();
+        }
 
         private void BuildFinaleTimer()
         {
@@ -481,7 +548,7 @@ namespace Defense2D
 
         private void BuildHintText()
         {
-            CreateText("Hint", _canvas.transform, "TAB 건설 메뉴 · 클릭으로 타워 배치/철거 · 우클릭·ESC 취소 · P 일시정지 · F 배속",
+            CreateText("Hint", _canvas.transform, "1~4 타워 선택 · TAB 건설 메뉴 · 클릭으로 배치/철거 · 우클릭·ESC 취소 · P 일시정지 · F 배속",
                 14, new Color(1, 1, 1, 0.7f), TextAnchor.MiddleCenter, new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 new Vector2(700, 24), new Vector2(0, 8));
         }
@@ -491,8 +558,9 @@ namespace Defense2D
         private void BuildPrepPanel()
         {
             // "지금 시작" 버튼은 우측 상단의 통합 액션 버튼(웨이브 시작/스킵)으로 옮겨서 그만큼 패널을 낮췄다.
+            // [해설] 다음 웨이브 구성 줄이 한 줄 늘어나면서 높이를 64 → 88로 키웠다.
             _prepPanel = CreatePanel("PrepPanel", _canvas.transform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                new Vector2(560, 64), new Vector2(0, -90), new Color(0.05f, 0.08f, 0.15f, 0.88f)).gameObject;
+                new Vector2(560, 88), new Vector2(0, -90), new Color(0.05f, 0.08f, 0.15f, 0.88f)).gameObject;
 
             _prepText = CreateText("PrepText", _prepPanel.transform, "다음 웨이브 준비 중...", 18, Color.white, TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(420, 26), new Vector2(-60, -14));
@@ -500,8 +568,13 @@ namespace Defense2D
             _prepCountdownText = CreateText("PrepCountdown", _prepPanel.transform, "", 20, new Color(1f, 0.85f, 0.3f),
                 TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(80, 26), new Vector2(220, -14));
 
+            // ★ 다음 웨이브에 무엇이 몇 마리 오는지. 이 줄이 있어야 준비 시간이 "기다리는 시간"이
+            //   아니라 "대비하는 시간"이 된다(WaveManager.NextWaveComposition 해설 참고).
+            _wavePreviewText = CreateText("WavePreview", _prepPanel.transform, "", 15, new Color(0.72f, 0.86f, 1f),
+                TextAnchor.MiddleCenter, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(540, 22), new Vector2(0, -40));
+
             _bossHintText = CreateText("BossHint", _prepPanel.transform, "", 14, new Color(1f, 0.6f, 0.6f), TextAnchor.MiddleCenter,
-                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(540, 22), new Vector2(0, -40));
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(540, 22), new Vector2(0, -64));
         }
 
         /// <summary>
@@ -509,7 +582,8 @@ namespace Defense2D
         /// 함께 표시한다. 피날레(스테이지 마지막 웨이브)는 보스+유닛 대량 스폰 및 제한시간 패배
         /// 조건이 있는 특별한 웨이브이므로, 중간 보스 웨이브와 문구를 다르게 보여준다.
         /// </summary>
-        public void ShowPrepPanel(int stageNumber, int localWave, bool nextIsBoss, bool nextIsFinale, int bossPatternIndex)
+        public void ShowPrepPanel(int stageNumber, int localWave, bool nextIsBoss, bool nextIsFinale, int bossPatternIndex,
+                                  WaveManager.WavePreview preview)
         {
             _prepPanel.SetActive(true);
             if (nextIsFinale)
@@ -520,6 +594,34 @@ namespace Defense2D
                 _prepText.text = $"STAGE {stageNumber} · WAVE {localWave} 준비 중...";
 
             _bossHintText.text = (nextIsBoss && BossHints.ContainsKey(bossPatternIndex)) ? BossHints[bossPatternIndex] : "";
+            if (_wavePreviewText != null) _wavePreviewText.text = FormatWavePreview(preview);
+        }
+
+        /// <summary>다음 웨이브 구성을 한 줄로 만든다. 0마리인 종류는 빼서, 지금 실제로 대비해야
+        /// 하는 적만 눈에 들어오게 한다.</summary>
+        private static string FormatWavePreview(WaveManager.WavePreview p)
+        {
+            var sb = new System.Text.StringBuilder("다음 웨이브: ");
+            bool first = true;
+            void Add(string name, int n)
+            {
+                if (n <= 0) return;
+                if (!first) sb.Append(" · ");
+                sb.Append(name).Append(' ').Append(n);
+                first = false;
+            }
+            Add("잡몹", p.Mob);
+            Add("차저", p.Charger);
+            Add("방패병", p.Shield);
+            if (p.HasBoss)
+            {
+                if (!first) sb.Append(" · ");
+                sb.Append("보스 1");
+                first = false;
+            }
+            if (first) return "";
+            sb.Append("  (총 ").Append(p.Total).Append("마리)");
+            return sb.ToString();
         }
 
         public void SetPrepCountdown(float t)

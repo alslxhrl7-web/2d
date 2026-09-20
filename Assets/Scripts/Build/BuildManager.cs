@@ -8,9 +8,13 @@ namespace Defense2D
     /// <summary>
     /// TAB으로 건설 메뉴를 열고, 마우스로 타워를 배치한다. (기획서 02 GAMEPLAY 조작안)
     /// 경로 위/근처와 다른 타워와 너무 가까운 곳에는 배치할 수 없다.
-    /// [해설] 타워 종류는 더 이상 플레이어가 고르지 않는다 — 설치 버튼을 눌러 배치 모드에
-    /// 들어가면 미리보기(고스트)가 세 타입을 빠르게 돌아가며 보여주고, 실제로 클릭해 설치하는
-    /// 순간 그때 보이던 타입 그대로 설치된다(=사실상 무작위 결정).
+    ///
+    /// [해설] ★ 타워 종류를 <b>플레이어가 직접 고른다</b>. 예전에는 설치 버튼 하나만 있고
+    /// 미리보기가 네 타입을 빠르게 돌아가다가 클릭하는 순간의 타입으로 확정됐다 — 사실상
+    /// 무작위였다. 디펜스 장르의 핵심 동사가 "고르고 놓는다"인데 "놓는다"만 남아 있었던
+    /// 셈이고, 그래서 "차저가 많이 오니 빙결탑을 깔자" 같은 계획 자체가 성립하지 않았다.
+    /// 이제 숫자키 1~4 또는 건설 메뉴의 타워별 버튼으로 종류를 고르고, 고스트는 고른 종류를
+    /// 그대로 보여준다. 설치 후에도 선택이 유지되므로 같은 타워를 연달아 깔 수 있다.
     /// </summary>
     public class BuildManager : MonoBehaviour
     {
@@ -37,9 +41,9 @@ namespace Defense2D
         /// 타워를 집는다. 타워에 콜라이더가 없으므로 거리 판정으로 대신한다.</summary>
         private const float RemovePickRadius = 0.75f;
 
-        private TowerType _ghostPreviewType;
-        private float _ghostCycleTimer;
-        private const float GhostCycleInterval = 0.35f; // [해설] 고스트가 이 간격마다 타입을 다시 굴려서 "무작위" 느낌을 준다.
+        /// <summary>지금 고른 타워 종류. 고스트 미리보기와 실제 설치가 모두 이 값을 쓴다.
+        /// UIManager가 건설 메뉴 버튼을 강조할 때도 읽는다.</summary>
+        public TowerType SelectedType { get; private set; } = TowerType.Arrow;
 
         /// <summary>지금 타워를 놓는 중이거나 철거하는 중인지. GameManager가 ESC를 "모드 취소"로
         /// 쓸지 "일시정지"로 쓸지 판단하는 데 쓴다.</summary>
@@ -65,6 +69,8 @@ namespace Defense2D
                 if (!MenuOpen) CancelSelection();
                 UI.SetBuildMenuOpen(MenuOpen);
             }
+
+            HandleTowerTypeKeys(kb);
 
             // [해설] ESC는 여기서 처리하지 않는다. "모드 취소"와 "일시정지" 둘 다 ESC를 쓰는데
             // 두 컴포넌트가 같은 프레임에 각자 판정하면 실행 순서에 따라 결과가 달라지므로,
@@ -93,8 +99,47 @@ namespace Defense2D
         private bool IsPointerOverUI() =>
             EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
 
-        /// <summary>건설 메뉴의 "타워 설치" 버튼에서 호출한다. 타입은 아직 정해지지 않고,
-        /// 실제로 클릭해 설치하는 순간 고스트가 보여주던 타입으로 정해진다.</summary>
+        /// <summary>
+        /// 숫자키 1~4로 타워 종류를 고른다. 건설 메뉴가 닫혀 있어도 동작하며, 이 경우 메뉴를
+        /// 같이 열어 준다 — 키를 눌렀는데 아무 반응이 없는 것처럼 보이지 않게 하기 위해서다.
+        /// [해설] 키 배열을 배열로 만들지 않고 스위치로 쓰는 이유: Input System의 키 참조는
+        /// 프로퍼티라 배열을 만들면 매 프레임 할당이 생긴다. 네 개뿐이라 그냥 나열했다.
+        /// </summary>
+        private void HandleTowerTypeKeys(Keyboard kb)
+        {
+            // 보상 선택 화면이나 종료 화면처럼 모달 UI가 떠 있을 때는 숫자키를 무시한다
+            // (뒤에서 건설 메뉴가 열리고 배치 모드가 켜지는 어색한 상황을 막는다).
+            if (Game != null && Game.State != GameState.Prep && Game.State != GameState.Defense) return;
+
+            if (kb.digit1Key.wasPressedThisFrame) SelectTowerType(TowerType.Arrow);
+            else if (kb.digit2Key.wasPressedThisFrame) SelectTowerType(TowerType.Ice);
+            else if (kb.digit3Key.wasPressedThisFrame) SelectTowerType(TowerType.Lightning);
+            else if (kb.digit4Key.wasPressedThisFrame) SelectTowerType(TowerType.Cannon);
+        }
+
+        /// <summary>타워 종류를 고르고 곧바로 배치 모드에 들어간다. 건설 메뉴의 타워 버튼과
+        /// 숫자키 1~4가 모두 이 경로를 쓴다.</summary>
+        public void SelectTowerType(TowerType type)
+        {
+            SelectedType = type;
+
+            if (!MenuOpen)
+            {
+                MenuOpen = true;
+                UI.SetBuildMenuOpen(true);
+            }
+
+            // 이미 배치 중이면 고스트만 새 종류로 갈아끼우고, 아니면 배치 모드를 새로 연다.
+            if (_placing && _ghostSr != null && _ghostVisual != null)
+                ApplyTowerVisual(_ghostSr, _ghostVisual, SelectedType);
+            else
+                BeginPlacement();
+
+            UI.RefreshTowerTypeButtons();
+        }
+
+        /// <summary>건설 메뉴의 타워 버튼에서 호출한다. 설치될 타입은 지금 고른
+        /// SelectedType이며, 고스트가 그 타입을 그대로 보여준다.</summary>
         public void BeginPlacement()
         {
             CancelSelection(); // 철거 모드와 동시에 켜지지 않도록 먼저 정리
@@ -137,16 +182,13 @@ namespace Defense2D
         {
             DestroyGhostObjects();
 
-            _ghostPreviewType = RandomTowerType();
-            _ghostCycleTimer = GhostCycleInterval;
-
             _ghost = new GameObject("PlaceGhost");
             // 실제 타워와 똑같은 자식 구조로 만들어야 미리보기와 결과물의 위치가 일치한다.
             _ghostVisual = new GameObject("Visual").transform;
             _ghostVisual.SetParent(_ghost.transform, false);
             _ghostSr = _ghostVisual.gameObject.AddComponent<SpriteRenderer>();
             _ghostSr.sortingOrder = View.BandGhost + 1;
-            ApplyTowerVisual(_ghostSr, _ghostVisual, _ghostPreviewType); // 실제 배치될 타워와 동일한 아트/크기로 미리보기
+            ApplyTowerVisual(_ghostSr, _ghostVisual, SelectedType); // 실제 배치될 타워와 동일한 아트/크기로 미리보기
 
             EnsureRangeGhost();
             _rangeGhost.GetComponent<SpriteRenderer>().color = Color.white;
@@ -167,14 +209,10 @@ namespace Defense2D
             rsr.sortingOrder = View.BandGhost;
         }
 
-        /// <summary>[해설] 예전에는 Random.Range(0, 3)으로 "3"이 하드코딩돼 있어서, TowerType에
-        /// 값을 추가해도 새 타워가 영원히 뽑히지 않는 함정이 있었다(번개탑을 넣으면서 실제로 걸렸다).
-        /// 이제 enum 길이를 기준으로 굴리므로 타워를 추가하면 자동으로 후보에 들어간다.
-        /// Enum.GetValues는 호출할 때마다 배열을 새로 만들기 때문에, 매 프레임 도는 미리보기
-        /// 갱신에서 쓰지 않도록 값을 static readonly로 한 번만 계산해 둔다.</summary>
-        private static readonly int TowerTypeCount = System.Enum.GetValues(typeof(TowerType)).Length;
-
-        private static TowerType RandomTowerType() => (TowerType)Random.Range(0, TowerTypeCount);
+        /// <summary>타워 종류의 개수. UIManager가 건설 메뉴 버튼을 몇 개 만들지 정할 때 쓴다.
+        /// [해설] Enum.GetValues는 호출할 때마다 배열을 새로 만들기 때문에 static readonly로
+        /// 한 번만 계산해 둔다. enum에 값을 추가하면 버튼도 자동으로 따라 늘어난다.</summary>
+        public static readonly int TowerTypeCount = System.Enum.GetValues(typeof(TowerType)).Length;
 
         private Vector3 MouseWorld()
         {
@@ -189,21 +227,14 @@ namespace Defense2D
 
         private void UpdateGhost()
         {
-            // [해설] 일정 간격마다 미리보기 타입을 다시 굴려서, 클릭 전까지는 어떤 타워가
-            // 설치될지 알 수 없는 "무작위" 느낌을 살린다.
-            _ghostCycleTimer -= Time.deltaTime;
-            if (_ghostCycleTimer <= 0f)
-            {
-                _ghostCycleTimer = GhostCycleInterval;
-                _ghostPreviewType = RandomTowerType();
-                ApplyTowerVisual(_ghostSr, _ghostVisual, _ghostPreviewType);
-            }
-
+            // [해설] 예전에는 여기서 0.35초마다 타입을 다시 굴렸다(무작위 설치). 이제는 고른
+            // 종류가 그대로 유지되므로 갱신이 필요 없고, 고스트 아트는 종류를 바꾸는 순간
+            // SelectTowerType()에서 한 번만 갈아끼운다.
             Vector3 pos = MouseWorld();
             _ghost.transform.position = pos;
             _rangeGhost.transform.position = pos;
 
-            float range = TowerRangeFor(_ghostPreviewType);
+            float range = TowerRangeFor(SelectedType);
             // [해설] 사거리 표시는 바닥에 놓인 원이므로, 누운 평면 위에서는 타원으로 보여야 한다.
             // 다만 실제 사거리 판정(Vector2.Distance)은 눌린 좌표계에서 그대로 하므로 판정 자체는
             // 화면상 정원이다. 그래서 링도 누르지 않고 정원으로 두는 것이 판정과 정확히 일치한다.
@@ -250,7 +281,7 @@ namespace Defense2D
             if (!IsValidPlacement(pos)) return;
 
             // [해설] 설치되는 타입은 지금 고스트가 보여주고 있던 타입 그대로 확정한다(WYSIWYG).
-            TowerType type = _ghostPreviewType;
+            TowerType type = SelectedType;
             int cost = GameConstants.CostFor(type);
             if (Game.Gold < cost)
             {
@@ -262,14 +293,8 @@ namespace Defense2D
             SpawnTower(type, pos);
             Game.ShowBanner($"{TowerLabel(type)} 설치!");
 
-            // 다음 설치를 위해 미리보기를 즉시 다시 굴려서 "매번 새로 무작위" 느낌을 이어간다.
-            _ghostPreviewType = RandomTowerType();
-            _ghostCycleTimer = GhostCycleInterval;
-            // ★ 버그 수정: 여기만 고스트 <b>루트</b>를 넘기고 있었다. ApplyTowerVisual은 넘겨받은
-            // 트랜스폼에 스케일과 발밑 오프셋을 쓰는데, 자식(_ghostVisual)이 이미 그 값을 갖고
-            // 있으므로 루트에까지 걸리면 스케일이 제곱으로 곱해져(0.155² ≈ 0.024) 미리보기가
-            // 1.5유닛에서 0.23유닛짜리 점으로 쪼그라들었다. 다른 호출부와 같이 자식을 넘긴다.
-            ApplyTowerVisual(_ghostSr, _ghostVisual, _ghostPreviewType);
+            // [해설] 설치 후에도 고른 종류를 그대로 유지한다 — 같은 타워를 여러 개 깔 때
+            // 매번 다시 고르지 않아도 되도록. 고스트 아트도 바뀌지 않으므로 다시 그릴 필요가 없다.
         }
 
         // ---------- 타워 철거 ----------
@@ -353,7 +378,8 @@ namespace Defense2D
             // 연달아 여러 개를 철거할 수 있도록 철거 모드는 그대로 유지한다.
         }
 
-        private static string TowerLabel(TowerType t) => t switch
+        /// <summary>화면에 보여줄 타워 이름. 건설 메뉴 버튼도 이 이름을 쓰므로 public이다.</summary>
+        public static string TowerLabel(TowerType t) => t switch
         {
             TowerType.Arrow => "화살탑",
             TowerType.Ice => "빙결탑",

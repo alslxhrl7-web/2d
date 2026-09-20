@@ -69,13 +69,15 @@ namespace Defense2D
         private const float KillGoldReward = 0.5f;
 
         /// <summary>적 체력 증가가 시작되는 (전역) 웨이브 번호. 이 웨이브 전까지는 기본 체력
-        /// 그대로이고, 이 웨이브부터 웨이브당 HpGainPerWave만큼 더해진다 — SpawnEnemy 참고.</summary>
+        /// 그대로이고, 이 웨이브부터 웨이브당 HpGrowthPerWave만큼 곱해진다 — SpawnEnemy 참고.</summary>
         private const int HpScaleStartWave = 5;
 
-        /// <summary>HpScaleStartWave 이후 <b>웨이브 한 번마다</b> 모든 일반 적의 체력에 더해지는 양.
-        /// 잡몹 기준 1~4웨 27 / 5웨 37 / 10웨 87 / 25웨 237 / 50웨 487 / 75웨 737이 된다.
-        /// 보스는 자기 공식(baseHp)을 따로 쓰므로 이 값의 영향을 받지 않는다.</summary>
-        private const float HpGainPerWave = 10f;
+        /// <summary>HpScaleStartWave 이후 <b>웨이브 한 번마다</b> 모든 일반 적의 체력에 곱해지는
+        /// 배율(복리). 1.10 = 웨이브당 +10%.
+        /// 잡몹 기준 1~4웨 27 / 5웨 30 / 10웨 48 / 25웨 200 / 50웨 2,165 / 75웨 23,455가 된다.
+        /// 보스는 자기 공식(baseHp)을 따로 쓰므로 이 값의 영향을 받지 않는다.
+        /// 왜 가산이 아니라 복리인지는 SpawnEnemy의 hpScale 해설 참고.</summary>
+        private const float HpGrowthPerWave = 1.10f;
         private int _maxAliveCapacity = GameConstants.StartingMaxAliveEnemies;
 
         // 스폰 간격(초). 예전보다 더 촘촘하게 몰아쳐서 나오도록 축소했다.
@@ -318,15 +320,26 @@ namespace Defense2D
 
             // [해설] 체력 증가는 HpScaleStartWave(5)웨이브부터 시작한다. 1웨이브부터 곧바로
             // 올리면 타워 한두 개로 버티는 도입부가 사라지기 때문이다. 1~4웨이브는 기본 체력
-            // 그대로이고, 5웨이브부터 웨이브당 HpGainPerWave(10)씩 더해진다.
-            //   잡몹 기준 1~4웨 27 / 5웨 37 / 10웨 87 / 25웨 237 / 50웨 487 / 75웨 737
-            // Mathf.Max(0, ...)가 4웨이브 이하에서 음수가 더해지는(=체력이 줄어드는) 것을 막는다.
+            // 그대로이고, 5웨이브부터 웨이브당 HpGrowthPerWave(+10%)씩 <b>복리로</b> 곱해진다.
+            //   잡몹 기준 1~4웨 27 / 5웨 30 / 10웨 48 / 25웨 200 / 50웨 2,165 / 75웨 23,455
+            // Mathf.Max(0, ...)가 4웨이브 이하에서 지수가 음수가 되는(=체력이 줄어드는) 것을 막는다.
             // 속도/보스 체력은 각자 따로 계산하므로 여기 영향을 받지 않는다.
-            // ★ 증가 방식을 "배율(+8%)"에서 <b>가산(+10)</b>으로 바꿨다. 배율은 원래 체력에
-            // 비례하므로 잡몹과 방패병의 격차가 계속 벌어지는데, 가산은 모두에게 같은 양이
-            // 붙어서 웨이브가 갈수록 종류별 차이가 좁혀지고 증가량을 예측하기도 쉽다.
+            //
+            // ★★ 증가 방식을 <b>가산(+10)에서 복리(+10%)로</b> 되돌렸다. 이유는 방향이다.
+            // 플레이어의 힘은 "타워 수 × 강화"라서 뒤로 갈수록 빠르게 커지는데, 적 체력이
+            // 선형이면 격차가 계속 벌어지기만 한다. 실제로 가산일 때는 화살탑 한 대가 잡몹
+            // 하나를 잡는 시간이 몇 웨이브든 2.5초를 넘지 않았다 — 강화가 체력 증가를 완전히
+            // 따라잡아서, 뒤로 갈수록 오히려 더 쉬워졌다.
+            // 복리로 바꾸면 그 상한이 풀린다(75웨 기준 처치 시간 2.5초 → 80초, 약 32배).
+            //
+            // 주의 1: 10~25웨이브 구간은 오히려 지금보다 <b>쉬워진다</b>. +10은 기본 체력 27에
+            //   비해 큰 폭이라 초반에 가팔랐지만 1.1^6은 1.77배뿐이기 때문이다. 역전은 30웨쯤.
+            // 주의 2: 이 값만으로는 아직 패배가 성립하지 않는다(모델상 75웨 여유 2.6배).
+            //   다음 단계인 경제 압박(유지비·타워 상한)과 곱해져야 실제로 질 수 있게 된다.
+            //   두 변경은 곱해지므로, 경제 압박을 넣을 때 이 증가율을 반드시 다시 계산할 것.
+            // 주의 3: 배율이라 기본 체력이 큰 방패병(55)이 잡몹(27)보다 더 가파르게 벌어진다.
             int hpGrowthWaves = Mathf.Max(0, CurrentWave - HpScaleStartWave + 1);
-            float hpBonus = hpGrowthWaves * HpGainPerWave;
+            float hpScale = Mathf.Pow(HpGrowthPerWave, hpGrowthWaves);
             // [해설] 기본 이동속도를 일괄 +50% 올렸다(일반 1.5→2.25 / 돌진 2.6→3.9 / 방패 0.9→1.35 /
             // 보스 1.1→1.65). 적이 사거리 안에 머무는 시간이 3분의 2로 줄어들기 때문에, 타워의
             // 실효 화력도 그만큼 떨어져서 난이도가 눈에 띄게 올라간다.
@@ -370,15 +383,15 @@ namespace Defense2D
                     case EnemyType.Mob:
                         // [해설] 기본 체력을 27로 맞춰서, 1웨이브 기준(hpScale=1) 화살탑(공격력 9)에
                         // 정확히 3번 맞으면 죽도록(9×3=27) 1차 밸런스 기준점을 잡았다.
-                        ec.Init(type, 27f + hpBonus, 2.25f * speedScale, KillGoldReward,
+                        ec.Init(type, 27f * hpScale, 2.25f * speedScale, KillGoldReward,
                             wp, new Color(0.85f, 0.3f, 0.3f), Color.white);
                         break;
                     case EnemyType.Charger:
-                        ec.Init(type, 22f + hpBonus, 3.9f * speedScale, KillGoldReward,
+                        ec.Init(type, 22f * hpScale, 3.9f * speedScale, KillGoldReward,
                             wp, new Color(0.95f, 0.55f, 0.2f), Color.white);
                         break;
                     case EnemyType.Shield:
-                        ec.Init(type, 55f + hpBonus, 1.35f * speedScale, KillGoldReward,
+                        ec.Init(type, 55f * hpScale, 1.35f * speedScale, KillGoldReward,
                             wp, new Color(0.55f, 0.35f, 0.85f), Color.white);
                         break;
                 }
@@ -490,5 +503,62 @@ namespace Defense2D
         public bool NextIsStageFinale() => IsStageFinaleWave(NextLocalWave());
         public bool NextIsBoss() => IsMidStageBossWave(NextLocalWave()) || NextIsStageFinale();
         public int NextBossPatternIndex() => BossPatternIndexFor(NextStageIndex(), NextLocalWave());
+
+        /// <summary>
+        /// 다음 웨이브에 어떤 적이 몇 마리 오는지. 준비 단계 UI가 그대로 찍어 준다.
+        ///
+        /// [해설] ★ 준비 시간을 실제 플레이로 만들기 위해 추가했다. 예전에는 웨이브 사이 8초가
+        /// 그냥 기다리는 시간이었다 — 무엇이 오는지 모르니 대비할 수가 없고, 대비할 수 없으면
+        /// 타워를 고르게 해도 그 선택이 도박이 된다. 정보 없는 선택은 재미가 아니라 운이다.
+        /// 이제 "차저 40 · 방패 20"을 보고 무엇을 지을지(혹은 무엇을 팔지) 판단할 수 있다.
+        ///
+        /// BuildWave()와 <b>완전히 같은 규칙</b>으로 세어야 한다 — 미리보기와 실제가 어긋나면
+        /// 정보가 없느니만 못하다. 그래서 마리 수는 EnemyCountForWave, 종류는 PickTypeForWave로
+        /// BuildWave가 쓰는 바로 그 함수를 똑같이 호출한다.
+        /// </summary>
+        public struct WavePreview
+        {
+            public int Mob;
+            public int Charger;
+            public int Shield;
+            public bool HasBoss;
+            /// <summary>보스를 포함한 총 마리 수.</summary>
+            public int Total;
+        }
+
+        public WavePreview NextWaveComposition()
+        {
+            var p = new WavePreview();
+            int nextWave = CurrentWave + 1;
+            int localWave = NextLocalWave();
+
+            // 중간 보스 웨이브는 보스 한 마리뿐이다(BuildWave의 첫 분기와 같다).
+            if (IsMidStageBossWave(localWave))
+            {
+                p.HasBoss = true;
+                p.Total = 1;
+                return p;
+            }
+
+            int count = EnemyCountForWave(nextWave);
+            for (int i = 0; i < count; i++)
+            {
+                switch (PickTypeForWave(nextWave, i))
+                {
+                    case EnemyType.Charger: p.Charger++; break;
+                    case EnemyType.Shield: p.Shield++; break;
+                    default: p.Mob++; break;
+                }
+            }
+            p.Total = count;
+
+            // 스테이지 피날레는 위 물량에 보스가 한 마리 얹힌다.
+            if (IsStageFinaleWave(localWave))
+            {
+                p.HasBoss = true;
+                p.Total++;
+            }
+            return p;
+        }
     }
 }

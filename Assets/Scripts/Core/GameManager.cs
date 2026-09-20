@@ -159,8 +159,11 @@ namespace Defense2D
             // [해설] 스테이지 구조 개편에 따라, "다음 웨이브"를 더 이상 단순 정수 하나로 다루지 않고
             // WaveManager의 Next*() 헬퍼로 스테이지 번호/로컬 웨이브/보스 여부/피날레 여부/보스 패턴을
             // 함께 내다본다.
+            // ★ 다음 웨이브의 적 구성도 함께 넘긴다 — 준비 시간에 무엇이 오는지 보고
+            //   타워를 고르게 하기 위한 것(WaveManager.NextWaveComposition 해설 참고).
             UI.ShowPrepPanel(Waves.NextStageNumber(), Waves.NextLocalWave(),
-                Waves.NextIsBoss(), Waves.NextIsStageFinale(), Waves.NextBossPatternIndex());
+                Waves.NextIsBoss(), Waves.NextIsStageFinale(), Waves.NextBossPatternIndex(),
+                Waves.NextWaveComposition());
         }
 
         public void SkipPrep()
@@ -306,11 +309,13 @@ namespace Defense2D
         /// UIManager.AllUpgrades의 안내 문구("동시 생존 허용 한도 +6")와 반드시 같은 값이어야 한다.</summary>
         public const int AliveCapacityBonus = 6;
 
-        /// <summary>"○○탑 강화" 보상 1회당 <b>그 종류</b>의 공격력에 곱해지는 배율.
-        /// [해설] 예전 전체 강화는 ×1.2였는데, 이제 네 종류 중 하나에만 붙으므로 같은 값이면
-        /// 체감이 4분의 1로 줄어든다. 한 종류에 몰아주는 선택이 의미 있도록 ×1.3으로 올렸다.
-        /// UIManager.AllUpgrades의 안내 문구(+30%)와 반드시 같은 값이어야 한다.</summary>
-        public const float TowerDamageBonus = 1.3f;
+        /// <summary>"○○탑 강화" 보상 1회당 <b>그 종류</b>의 공격력 배율에 더해지는 값.
+        /// [해설] ★ 곱셈(×1.3)에서 덧셈(+0.25)으로 바꿨다. 곱셈이면 고를수록 지수로 불어나서
+        /// 75웨이브쯤에는 배율이 수천만 배가 되는데, 적은 선형으로만 강해지므로 게임이
+        /// 성립하지 않는다(자세한 근거는 TowerBase._damageMultipliers 해설).
+        /// 4번 고르면 2배, 8번이면 3배가 되어 적의 성장과 같은 속도로 올라간다.
+        /// UIManager.AllUpgrades의 안내 문구(+25%p)와 반드시 같은 값이어야 한다.</summary>
+        public const float TowerDamageBonus = 0.25f;
 
         private void ApplyUpgrade(UpgradeOption opt)
         {
@@ -327,7 +332,8 @@ namespace Defense2D
                     break;
                 case UpgradeKind.TowerDamage:
                     // ★ 모든 타워가 아니라 고른 종류 하나에만 누적된다(UpgradeOption.Target).
-                    TowerBase.MultiplyDamage(opt.Target, TowerDamageBonus);
+                    //   그리고 곱하지 않고 더한다 — TowerDamageBonus 해설 참고.
+                    TowerBase.AddDamageBonus(opt.Target, TowerDamageBonus);
                     break;
             }
             UI.ShowBanner($"업그레이드 적용: {opt.Label}");
