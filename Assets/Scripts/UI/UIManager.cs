@@ -50,6 +50,10 @@ namespace Defense2D
         private GameObject _bossBanner;
         private Text _bossBannerText;
 
+        private GameObject _stageSelectPanel;
+        private Text _stageSelectText;
+        private Text _stageStartLabel;
+
         private GameObject _rewardPanel;
         private readonly List<GameObject> _rewardButtons = new List<GameObject>();
 
@@ -76,6 +80,9 @@ namespace Defense2D
         private static readonly List<UpgradeOption> AllUpgrades = new List<UpgradeOption>
         {
             new UpgradeOption{ Kind = UpgradeKind.AliveCapacity, Label = "수용력 강화", Description = $"동시 생존 허용 한도 +{GameManager.AliveCapacityBonus}" },
+            // 아래 Description은 화면 설명이다. 여기의 숫자만 바꾸면 실제 보상은 변하지 않는다.
+            // 실제 골드 %: GameManager.ApplyUpgrade의 _goldMultiplier *= 1.1f.
+            // 실제 타워 %: GameManager.TowerDamageBonus. 아래 문구는 그 값을 자동으로 표시한다.
             new UpgradeOption{ Kind = UpgradeKind.GoldGain, Label = "재화 감각", Description = "골드 획득량 +10%" },
             // ★ "모든 타워 +20%" 하나를 타워 종류별 4개로 쪼갰다. 매 보상마다 아래 6개 중
             //   3개가 무작위로 뜨므로, 지금 깔아 둔 구성에 맞춰 무엇을 키울지 고르게 된다.
@@ -84,13 +91,13 @@ namespace Defense2D
             //   키우든 새 종류를 키우든 증가폭이 같아서 "지금 뭘 많이 깔았나"가 실제로
             //   판단 근거가 된다. 밸런스 근거는 GameManager.TowerDamageBonus 해설 참고.
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Arrow,
-                               Label = "화살탑 강화", Description = "화살탑 공격력 +25%p (기본값 기준 가산)" },
+                               Label = "화살탑 강화", Description = $"화살탑 공격력 +{GameManager.TowerDamageBonus * 100:0}% (최대 {TowerBase.MaxDamageMultiplier:0.#}배)" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Ice,
-                               Label = "빙결탑 강화", Description = "빙결탑 공격력 +25%p (기본값 기준 가산)" },
+                               Label = "빙결탑 강화", Description = $"빙결탑 공격력 +{GameManager.TowerDamageBonus * 100:0}% (최대 {TowerBase.MaxDamageMultiplier:0.#}배)" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Cannon,
-                               Label = "포격탑 강화", Description = "포격탑 공격력 +25%p (기본값 기준 가산)" },
+                               Label = "포격탑 강화", Description = $"포격탑 공격력 +{GameManager.TowerDamageBonus * 100:0}% (최대 {TowerBase.MaxDamageMultiplier:0.#}배)" },
             new UpgradeOption{ Kind = UpgradeKind.TowerDamage, Target = TowerType.Lightning,
-                               Label = "번개탑 강화", Description = "번개탑 공격력 +25%p (기본값 기준 가산)" },
+                               Label = "번개탑 강화", Description = $"번개탑 공격력 +{GameManager.TowerDamageBonus * 100:0}% (최대 {TowerBase.MaxDamageMultiplier:0.#}배)" },
         };
 
         /// <summary>프로젝트에 내장한 한글 폰트의 Resources 경로(확장자 제외).</summary>
@@ -107,6 +114,7 @@ namespace Defense2D
             BuildBanner();
             BuildBossBanner();
             BuildRewardPanel();
+            BuildStageSelectPanel();
             // 일시정지 패널은 종료 화면보다 먼저 만든다 — uGUI는 나중에 만든 것이 위에 그려지므로,
             // 게임오버 화면이 일시정지 화면을 덮도록 하려면 이 순서여야 한다.
             BuildPausePanel();
@@ -406,8 +414,8 @@ namespace Defense2D
 
             // 게임이 끝난 뒤에는 멈출 것이 없으므로 일시정지 버튼을 숨긴다.
             bool over = Game.State == GameState.GameOver || Game.State == GameState.Victory;
-            if (_pauseButton != null) _pauseButton.gameObject.SetActive(!over);
-            if (_speedButton != null) _speedButton.gameObject.SetActive(!over);
+            if (_pauseButton != null) _pauseButton.gameObject.SetActive(!over && Game.State != GameState.StageSelect);
+            if (_speedButton != null) _speedButton.gameObject.SetActive(!over && Game.State != GameState.StageSelect);
 
             // 일시정지 중에는 "웨이브 시작/스킵" 버튼을 눌러 진행시킬 수 없어야 한다.
             if (Game.IsPaused)
@@ -553,6 +561,43 @@ namespace Defense2D
                 new Vector2(700, 24), new Vector2(0, 8));
         }
 
+        // ---------- 다음 스테이지 선택 ----------
+
+        private void BuildStageSelectPanel()
+        {
+            _stageSelectPanel = CreatePanel("StageSelectOverlay", _canvas.transform,
+                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero,
+                Vector2.zero, new Color(0.02f, 0.04f, 0.08f, 0.94f)).gameObject;
+            var center = new Vector2(0.5f, 0.5f);
+            _stageSelectText = CreateText("StageSelectInfo", _stageSelectPanel.transform, "", 22,
+                Color.white, TextAnchor.MiddleCenter, center, center,
+                new Vector2(860, 340), new Vector2(0, 50));
+            var start = CreateButton("NextStageStart", _stageSelectPanel.transform, "다음 스테이지 시작",
+                new Vector2(300, 56), new Vector2(0, -185), center, center,
+                () => Game.ConfirmNextStage(), new Color(0.18f, 0.5f, 0.3f));
+            _stageStartLabel = start.GetComponentInChildren<Text>();
+            _stageSelectPanel.SetActive(false);
+        }
+
+        public void ShowStageSelectPanel()
+        {
+            int refund = Build != null ? Build.StageRefundGold() : 0;
+            int carried = Mathf.FloorToInt((Game.Gold + refund) * GameConstants.StageGoldCarryRate);
+            int next = Waves.NextStageNumber();
+            _stageSelectText.text =
+                $"STAGE {Waves.StageNumber} 클리어!\n\nSTAGE {next} 진입\n" +
+                $"{FormatWavePreview(Waves.NextWaveComposition())}\n\n" +
+                $"보유 {Game.Gold} + 타워 환급 {refund}골드\n" +
+                $"시작 골드: 기본 {GameConstants.StartingGold} + 이월 {carried} = {GameConstants.StartingGold + carried}\n" +
+                $"환급 포함 골드의 {GameConstants.StageGoldCarryRate * 100:0}% 이월 (소수점 버림)\n\n" +
+                "시작하면 타워를 철거하고 새 길로 전환합니다.\n선택한 강화는 유지됩니다.";
+            _stageStartLabel.text = $"{next}스테이지 시작";
+            _stageSelectPanel.SetActive(true);
+            RefreshActionButton();
+        }
+
+        public void HideStageSelectPanel() => _stageSelectPanel.SetActive(false);
+
         // ---------- 준비 단계 ----------
 
         private void BuildPrepPanel()
@@ -594,6 +639,11 @@ namespace Defense2D
                 _prepText.text = $"STAGE {stageNumber} · WAVE {localWave} 준비 중...";
 
             _bossHintText.text = (nextIsBoss && BossHints.ContainsKey(bossPatternIndex)) ? BossHints[bossPatternIndex] : "";
+            if (nextIsBoss && localWave == 5)
+            {
+                _prepText.text = $"STAGE {stageNumber} · WAVE 5 - 보호막 보스 (제한시간 {GameConstants.RoundFiveBossTimeLimit:0}초)";
+                _bossHintText.text = $"패턴: {GameConstants.RoundFiveInvulnerabilityWarning:0}초 예고 후 {GameConstants.RoundFiveInvulnerabilityDuration:0}초 무적 · 무적 중에도 제한시간 진행";
+            }
             if (_wavePreviewText != null) _wavePreviewText.text = FormatWavePreview(preview);
         }
 
@@ -697,6 +747,9 @@ namespace Defense2D
             _rewardButtons.Clear();
 
             var pool = new List<UpgradeOption>(AllUpgrades);
+            // 이미 최대 공격력에 도달한 종류는 무의미한 보상으로 나오지 않게 제거한다.
+            pool.RemoveAll(opt => opt.Kind == UpgradeKind.TowerDamage &&
+                                  !TowerBase.CanAddDamageBonus(opt.Target));
             var picks = new List<UpgradeOption>();
             for (int i = 0; i < 3 && pool.Count > 0; i++)
             {

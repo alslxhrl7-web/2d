@@ -6,7 +6,8 @@ namespace Defense2D
 {
     /// <summary>
     /// 기획서 03 PROGRESSION의 보스 5종 규칙을 구현한다.
-    /// 1(5R): 직선 돌진 + 돌진 직후 약점 노출
+    /// 각 스테이지 5라운드: 순간 무적 (기존 패턴 번호와 무관하게 우선 적용)
+    /// 1: 직선 돌진 + 약점 노출 (5라운드 외에서 이 패턴이 배정된 경우)
     /// 2(10R): 주기적으로 타워 하나를 무력화 (맵 일부 봉쇄/타워 재배치 대응)
     /// 3(15R): 주기적으로 잡몹 소환
     /// 4(20R): 골드 약탈 + 골드 수급 방해 (경제 압박 — 거점이 없는 대신 자원을 직접 노린다)
@@ -26,6 +27,8 @@ namespace Defense2D
         private bool _charging;
         private float _bonusDamageWindow;
         private int _phase = 1;
+        private bool _usesRoundFivePattern;
+        private bool _isInvulnerable;
 
         /// <summary>보스는 남은 체력이 곧 전투의 핵심 정보이므로, 가득 차 있어도 체력바를 계속 보여 준다.</summary>
         protected override bool AlwaysShowHpBar => true;
@@ -38,6 +41,14 @@ namespace Defense2D
             _gameManager = gm;
             _buildManager = bm;
             _abilityTimer = 2f;
+            // 패턴 번호 5(최종 보스)가 아니라, 현재 스테이지의 5라운드를 대상으로 한다.
+            _usesRoundFivePattern = wm.LocalWave == 5;
+            if (_usesRoundFivePattern)
+            {
+                _abilityInterval = GameConstants.RoundFiveInvulnerabilityInterval;
+                _abilityTimer = GameConstants.RoundFiveFirstInvulnerability -
+                                GameConstants.RoundFiveInvulnerabilityWarning;
+            }
 
             // Init()에서 임시로 그려둔 도형(Diamond)을, 있으면 보스 번호별 전용 아트
             // (Sprites/Boss_1 ~ Boss_5)로 덮어씌운다. 없으면 도형을 그대로 사용한다.
@@ -57,7 +68,7 @@ namespace Defense2D
                 RunAbility();
             }
 
-            if (BossIndex == 5)
+            if (BossIndex == 5 && !_usesRoundFivePattern)
             {
                 int newPhase = HP > MaxHP * 0.66f ? 1 : HP > MaxHP * 0.33f ? 2 : 3;
                 if (newPhase != _phase)
@@ -72,6 +83,12 @@ namespace Defense2D
 
         private void RunAbility()
         {
+            // 5라운드는 순간 무적만 사용한다. 기존 돌진·소환·봉쇄 능력과 겹치지 않는다.
+            if (_usesRoundFivePattern)
+            {
+                StartCoroutine(InvulnerabilityRoutine());
+                return;
+            }
             switch (BossIndex)
             {
                 case 1:
@@ -96,6 +113,30 @@ namespace Defense2D
                     if (_phase >= 3) StartCoroutine(ChargeRoutine());
                     break;
             }
+        }
+
+        private IEnumerator InvulnerabilityRoutine()
+        {
+            if (_sr != null) _sr.color = new Color(1f, 0.8f, 0.2f);
+            _gameManager?.ShowBanner($"보스 무적 예고! {GameConstants.RoundFiveInvulnerabilityWarning:0.#}초 후 보호막이 생깁니다.");
+            yield return new WaitForSeconds(GameConstants.RoundFiveInvulnerabilityWarning);
+            if (IsDead || !enabled) yield break;
+
+            _isInvulnerable = true;
+            if (_sr != null) _sr.color = new Color(0.3f, 0.8f, 1f);
+            _gameManager?.ShowBanner("보스 순간 무적! 보호막이 사라지면 피해를 줄 수 있습니다.");
+            yield return new WaitForSeconds(GameConstants.RoundFiveInvulnerabilityDuration);
+
+            _isInvulnerable = false;
+            if (_sr != null) _sr.color = Color.white;
+        }
+
+        protected override void OnDisable()
+        {
+            // 패배 시 컴포넌트를 끌 때 진행 중인 예고·무적도 함께 종료한다.
+            StopAllCoroutines();
+            _isInvulnerable = false;
+            base.OnDisable();
         }
 
         private IEnumerator ChargeRoutine()
@@ -132,6 +173,8 @@ namespace Defense2D
         /// </summary>
         public override float ExpectedDamage(float amount, DamageSource source)
         {
+            // 모든 피해와 투사체 예상 피해 계산에 같은 무적 판정을 적용한다.
+            if (_isInvulnerable) return 0f;
             if (_bonusDamageWindow > 0f) amount *= 1.6f; // 돌진 직후 약점 노출: 추가 피해
             return base.ExpectedDamage(amount, source);
         }

@@ -11,7 +11,7 @@ namespace Defense2D
     /// 사건 자체가 없어졌고, 유일한 패배 조건은 동시 생존 적이 한도(WaveManager.MaxAliveEnemies)를
     /// 넘어서는 것(TriggerOverwhelmDefeat)이다.
     /// </summary>
-    public enum GameState { Prep, Defense, Reward, GameOver, Victory }
+    public enum GameState { Prep, Defense, Reward, GameOver, Victory, StageSelect }
 
     public class GameManager : MonoBehaviour
     {
@@ -25,6 +25,7 @@ namespace Defense2D
         private float _incomeSuppressTimer;
         private float _goldMultiplier = 1f;
         private float _prepTimer;
+        private bool _stageTransitionPending;
         /// <summary>아직 1골드가 되지 못하고 쌓여 있는 처치 보상의 소수점 부분 (AddGold 참고).</summary>
         private float _goldFraction;
 
@@ -56,13 +57,14 @@ namespace Defense2D
         /// </summary>
         public void CycleSpeed()
         {
+            if (State == GameState.StageSelect) return;
             _speedIndex = (_speedIndex + 1) % SpeedSteps.Length;
             if (!IsPaused) Time.timeScale = GameSpeed;
             UI.RefreshSpeedButton();
         }
 
         /// <summary>게임이 이미 끝난 상태(게임오버/승리)에서는 일시정지를 걸 수 없다.</summary>
-        private bool CanPause => State != GameState.GameOver && State != GameState.Victory;
+        private bool CanPause => State != GameState.StageSelect && State != GameState.GameOver && State != GameState.Victory;
 
         private void Awake()
         {
@@ -217,6 +219,34 @@ namespace Defense2D
             Gold += amount;
             UI.RefreshGold();
         }
+        /// <summary>시작 버튼에서 한 번만 실행: 타워 환급 → 골드 정산 → 준비.</summary>
+        public void ConfirmNextStage()
+        {
+            if (State != GameState.StageSelect || !_stageTransitionPending || IsPaused) return;
+
+            // 상태를 먼저 바꿔 같은 프레임의 중복 클릭도 차단한다.
+            _stageTransitionPending = false;
+            State = GameState.Prep;
+            UI.HideStageSelectPanel();
+            Waves.PrepareNextStage();
+            SettleGoldForNextStage();
+            EnterPrep();
+            UI.ShowBanner($"STAGE {Waves.NextStageNumber()} 준비! 정산 후 {Gold}골드");
+        }
+
+        // 스테이지 변경 시 골드 정산
+        private void SettleGoldForNextStage()
+        {
+            int carriedGold =
+                Mathf.FloorToInt(
+                    Gold * GameConstants.StageGoldCarryRate
+                );
+
+            Gold = GameConstants.StartingGold + carriedGold;
+            _goldFraction = 0f;
+            _incomeSuppressTimer = 0f;
+            UI.RefreshGold();
+        }
 
         /// <summary>보스(4번)가 골드를 직접 약탈할 때 사용. 보유 골드보다 많이 뺏기지 않도록 클램프한다.</summary>
         public void StealGold(int amount)
@@ -264,6 +294,10 @@ namespace Defense2D
             // 그래서 AddGold()를 경유하도록 바꿨다 — 이제 _goldMultiplier가 여기에도 곱해지고,
             // 배율 때문에 생기는 소수점도 _goldFraction에 쌓였다가 나중에 온전히 지급된다.
             // (UI 갱신도 AddGold 안에서 처리하므로 여기서 RefreshGold를 또 부르지 않는다.)
+            // [웨이브 클리어 보상 수정 위치] %가 아니라 기본 골드 개수를 정하는 공식.
+            // 3 = 고정 골드. waveNumber * 2 / 3 = 진행도에 따른 추가 골드(소수점 버림).
+            // 1웨이브 3골드, 10웨이브 9골드, 25웨이브 19골드. 번호는 전체 누적 1~75.
+            // AddGold 안에서 재화 감각의 골드 획득 배율이 추가로 적용된다.
             AddGold(3 + waveNumber * 2 / 3, ignoreSuppression: true);
 
             // [해설] 스테이지 구조 개편: "몇 번째 전체 웨이브인가"가 아니라 "방금 끝난 웨이브가
@@ -279,20 +313,8 @@ namespace Defense2D
                 return;
             }
 
-            if (wasStageFinale)
-            {
-                // [해설] 길 교체와 타워 철거를 여기서 미리 해 둔다. 이 다음에 보상 선택과 준비
-                // 시간이 오므로, 플레이어는 새 길을 보면서 타워를 새로 배치할 수 있다.
-                // (예전에는 다음 웨이브가 "시작"될 때 교체해서, 준비 시간에 세운 타워가
-                //  웨이브 시작과 동시에 지워졌다 — WaveManager.BeginNextWave 해설 참고.)
-                //
-                // ★ 배너 순서 주의: PrepareNextStage 안에서 "타워 N개 철거" 배너를 띄우기 때문에,
-                //   스테이지 클리어 배너를 <b>먼저</b> 띄우면 같은 프레임에 덮여서 한 프레임도
-                //   보이지 않는다. 그래서 철거를 먼저 하고, 두 소식을 한 배너로 합쳐서 띄운다.
-                int stageJustCleared = Waves.StageNumber;
-                Waves.PrepareNextStage();
-                UI.ShowBanner($"STAGE {stageJustCleared} 클리어! 다음 스테이지 — 새 길에 맞춰 타워를 다시 배치하세요.");
-            }
+            _stageTransitionPending = wasStageFinale;
+            Build?.CloseMenu();
 
             State = GameState.Reward;
             UI.ShowRewardPanel(OnRewardChosen);
@@ -300,8 +322,17 @@ namespace Defense2D
 
         private void OnRewardChosen(UpgradeOption opt)
         {
+            if (State != GameState.Reward || IsPaused) return;
             ApplyUpgrade(opt);
             UI.HideRewardPanel();
+            if (_stageTransitionPending)
+            {
+                State = GameState.StageSelect;
+                Build?.CloseMenu();
+                UI.HidePrepPanel();
+                UI.ShowStageSelectPanel();
+                return;
+            }
             EnterPrep();
         }
 
@@ -310,12 +341,14 @@ namespace Defense2D
         public const int AliveCapacityBonus = 6;
 
         /// <summary>"○○탑 강화" 보상 1회당 <b>그 종류</b>의 공격력 배율에 더해지는 값.
-        /// [해설] ★ 곱셈(×1.3)에서 덧셈(+0.25)으로 바꿨다. 곱셈이면 고를수록 지수로 불어나서
+        /// [해설] 곱셈 강화에서 기본 공격력 기준 가산 방식으로 바꿨다. 곱셈이면 고를수록 지수로 불어나서
         /// 75웨이브쯤에는 배율이 수천만 배가 되는데, 적은 선형으로만 강해지므로 게임이
         /// 성립하지 않는다(자세한 근거는 TowerBase._damageMultipliers 해설).
-        /// 4번 고르면 2배, 8번이면 3배가 되어 적의 성장과 같은 속도로 올라간다.
-        /// UIManager.AllUpgrades의 안내 문구(+25%p)와 반드시 같은 값이어야 한다.</summary>
-        public const float TowerDamageBonus = 0.25f;
+        /// UI 문구는 이 값을 읽어 자동으로 표시하므로 아래 숫자만 수정하면 된다.</summary>
+        // [타워 강화 보상 % 수정 위치] 0.08f = 기본 공격력의 8%만큼 추가.
+        // +10%는 0.10f, +5%는 0.05f. 선택한 타워 종류에만 적용한다.
+        // 최종 공격력은 TowerBase.MaxDamageMultiplier(현재 2.5배)를 넘지 않는다.
+        public const float TowerDamageBonus = 0.08f;
 
         private void ApplyUpgrade(UpgradeOption opt)
         {
@@ -328,6 +361,12 @@ namespace Defense2D
                     // [해설] 이 배율이 이제 처치 보상뿐 아니라 웨이브 클리어 보너스에도 적용되므로
                     // (OnWaveClearedHandler 참고), 실질 효과가 커진 만큼 +20% → +10%로 낮춘다.
                     // 안내 문구는 UIManager.AllUpgrades의 "골드 획득량 +10%"와 짝을 맞춰야 한다.
+                    // [골드 획득 보상 % 수정 위치] 1.1f = 현재 획득량의 110% = +10%.
+                    // +20%는 1.2f, +30%는 1.3f. 0.1f로 쓰면 10%만 받으므로 주의!
+                    // 매번 곱함: 1회 선택 1.1배, 2회 1.21배(+21%), 3회 1.331배(+33.1%).
+                    // 처치 보상과 이후 웨이브 보너스에 적용. 이미 받은 이번 보너스는 그대로다.
+                    // 타워 환급과 스테이지 기본 골드에는 적용되지 않는다.
+                    // 변경 시 UIManager.cs의 재화 감각 Description도 같은 %로 수정한다.
                     _goldMultiplier *= 1.1f;
                     break;
                 case UpgradeKind.TowerDamage:

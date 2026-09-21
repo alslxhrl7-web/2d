@@ -38,7 +38,10 @@ namespace Defense2D
         private bool _allSpawned;
         private bool _isBossWave;
         private bool _isStageFinale;
-        private BossController _finaleBoss; // 피날레 웨이브의 보스 인스턴스(제한시간 판정용)
+        private BossController _finaleBoss; // 제한시간 대상 보스: 5라운드 또는 피날레
+        private bool _isTimedBossWave;
+        private float _bossTimeLimit;
+        private float _bossTimerStart;
         private int _waveTotalCount;
         private Coroutine _spawnCoroutine;
 
@@ -105,9 +108,10 @@ namespace Defense2D
         /// 1초로 짧게 준다(GameManager.EnterPrep / GameConstants.PrepPhaseSecondsAfterSkip 참고).</summary>
         public bool LastWaveSkipped { get; private set; }
 
-        /// <summary>스테이지 피날레의 제한시간이 다 되기까지 남은 시간(초). UI 경고 표시용.</summary>
+        /// <summary>5라운드 또는 피날레 보스 제한시간(초). 보스 처치 즉시 표시를 종료한다.</summary>
         public float FinaleTimeRemaining =>
-            _isStageFinale ? Mathf.Max(0f, GameConstants.StageFinaleBossTimeLimit - (Time.time - _waveStartTime)) : 0f;
+            WaveInProgress && _isTimedBossWave && _finaleBoss != null && !_finaleBoss.IsDead
+                ? Mathf.Max(0f, _bossTimeLimit - (Time.time - _bossTimerStart)) : 0f;
 
         // [해설] 보스 "이름/능력 패턴"은 5종(BossNames)을 계속 순환해서 재사용하지만, 보스가
         // 몇 번째로 등장하는지(인카운터 번호, 1..)는 스테이지 경계와 무관하게 계속 누적 증가시켜
@@ -135,34 +139,37 @@ namespace Defense2D
             // 순간 통째로 철거됐다. 게다가 전환이 "웨이브 시작" 시점이라, 2·3스테이지에서도
             // 플레이어는 아직 바뀌지 않은 옛 길을 보며 준비 시간을 쓰고 타워를 세운 뒤,
             // 웨이브가 시작되자마자 그게 다 지워졌다.
-            // 이제 길 교체는 스테이지 피날레를 깬 직후(GameManager.OnWaveClearedHandler →
-            // PrepareNextStage)에 하고 여기서는 아무것도 하지 않는다. 그러면 보상 선택과 준비
+            // 이제 길 교체는 다음 스테이지 시작 버튼에서(GameManager.ConfirmNextStage →
+            // PrepareNextStage)에 하고 여기서는 아무것도 하지 않는다. 그러면 다음 스테이지 준비
             // 시간을 새 길을 보면서 쓸 수 있고, 그때 세운 타워도 지워지지 않는다.
             // 첫 스테이지의 길은 GameBootstrapper.BuildGame이 이미 깔아 둔다.
 
             WaveDefinition def = BuildWave(LocalWave, StageIndex);
             _isBossWave = def.IsBoss;
             _isStageFinale = def.IsStageFinale;
+            _isTimedBossWave = def.IsStageFinale || (def.IsBoss && LocalWave == 5);
+            _bossTimeLimit = LocalWave == 5 ? GameConstants.RoundFiveBossTimeLimit
+                                          : GameConstants.StageFinaleBossTimeLimit;
             _finaleBoss = null;
             _waveTotalCount = def.Entries.Count;
             KilledThisWave = 0;
             _waveStartTime = Time.time; // [해설] 스킵/피날레 제한시간 카운트다운의 공통 시작점.
             OnWaveStarted?.Invoke(StageNumber, LocalWave);
             if (def.IsBoss)
-                OnBossIncoming?.Invoke(def.BossIndex, BossNames[def.BossIndex - 1]);
+                OnBossIncoming?.Invoke(def.BossIndex, LocalWave == 5 ? "보호막 보스" : BossNames[def.BossIndex - 1]);
             _spawnCoroutine = StartCoroutine(SpawnRoutine(def));
         }
 
         private void Update()
         {
-            // [해설] "25웨이브 보스 못 잡으면 게임오버" 요청에 따른 제한시간 판정. 스테이지 피날레
-            // 웨이브에서만 동작하며, 보스가 아직 살아있는 상태로 제한시간을 넘기면 화면에 남은 적
-            // 수(생존 한도 초과 여부)와 무관하게 즉시 게임오버 처리한다.
-            if (!WaveInProgress || !_isStageFinale) return;
+            // 5라운드와 피날레에서 제한시간 내 보스를 못 잡으면 즉시 패배한다.
+            if (!WaveInProgress || !_isTimedBossWave) return;
 
             bool bossAlive = _finaleBoss != null && !_finaleBoss.IsDead;
-            if (bossAlive && (Time.time - _waveStartTime) >= GameConstants.StageFinaleBossTimeLimit)
+            // 무적 중에도 제한시간은 흐른다. 일시정지와 배속은 기존 게임 시간 규칙을 따른다.
+            if (bossAlive && (Time.time - _bossTimerStart) >= _bossTimeLimit)
             {
+                _isTimedBossWave = false;
                 _isStageFinale = false; // 중복 트리거 방지
                 WaveInProgress = false;
                 if (_spawnCoroutine != null)
@@ -194,14 +201,14 @@ namespace Defense2D
         }
 
         /// <summary>
-        /// 스테이지 피날레를 깬 직후에 호출된다. 다음 스테이지의 길로 <b>미리</b> 갈아끼우고,
+        /// 보상 선택 후 다음 스테이지 시작 버튼에서 호출된다. 다음 스테이지의 길로 <b>미리</b> 갈아끼우고,
         /// 기존 타워를 전부 철거해 건설비를 전액 돌려준다.
         ///
         /// [해설] 스테이지마다 길 모양이 통째로 달라지므로, 판을 비우고 새 길에 맞춰 처음부터
         /// 다시 짜게 한다("새 길에서 무효가 된 것만" 골라 지우면 남은 타워와 새 타워가 뒤섞여
         /// 배치가 누더기가 되고, 무엇이 왜 사라졌는지도 알 수 없다).
         ///
-        /// 호출 시점이 중요하다. 이 뒤에 보상 선택 → 준비 시간이 오므로, 플레이어는 이미 바뀐
+        /// 호출 시점이 중요하다. 이 뒤에 준비 시간이 오므로, 플레이어는 이미 바뀐
         /// 새 길을 보면서 타워를 배치하게 된다. 예전처럼 다음 웨이브가 "시작"될 때 교체하면
         /// 준비 시간에 옛 길을 보고 세운 타워가 웨이브 시작과 동시에 지워진다.
         /// </summary>
@@ -303,7 +310,12 @@ namespace Defense2D
                 yield return new WaitForSeconds(entry.Delay);
                 var ec = SpawnEnemy(entry.Type, entry.PathIndex,
                     def.IsBoss ? def.BossIndex : 0, def.IsBoss ? def.BossEncounterNumber : 0);
-                if (def.IsStageFinale && entry.Type == EnemyType.Boss) _finaleBoss = ec as BossController;
+                if (_isTimedBossWave && entry.Type == EnemyType.Boss)
+                {
+                    _finaleBoss = ec as BossController;
+                    // 5라운드는 실제 등장 순간부터 60초. 기존 피날레의 기준은 유지한다.
+                    _bossTimerStart = def.IsStageFinale ? _waveStartTime : Time.time;
+                }
             }
             _allSpawned = true;
             CheckWaveClear();
@@ -360,7 +372,7 @@ namespace Defense2D
                 float bossGold = (15 + bossEncounterNumber * 10) * goldScale;
                 boss.Init(EnemyType.Boss, baseHp, 1.65f * speedScale, bossGold, wp,
                     new Color(0.75f, 0.2f, 0.75f), Color.white);
-                boss.InitBoss(bossPatternIndex, BossNames[bossPatternIndex - 1], this, Game, Build);
+                boss.InitBoss(bossPatternIndex, LocalWave == 5 ? "보호막 보스" : BossNames[bossPatternIndex - 1], this, Game, Build);
                 ec = boss;
             }
             else

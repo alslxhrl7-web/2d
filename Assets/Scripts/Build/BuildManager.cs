@@ -52,13 +52,36 @@ namespace Defense2D
         /// <summary>배치/철거 모드를 밖에서 취소시킨다(ESC 처리, 일시정지 진입 시 사용).</summary>
         public void CancelMode() => CancelSelection();
 
+        private bool CanBuild => Game != null && !Game.IsPaused &&
+            (Game.State == GameState.Prep || Game.State == GameState.Defense);
+
+        public void CloseMenu()
+        {
+            CancelMode();
+            MenuOpen = false;
+            UI.SetBuildMenuOpen(false);
+        }
+
+        /// <summary>다음 스테이지에서 받을 건설비 전액 환급의 미리보기.</summary>
+        public int StageRefundGold()
+        {
+            int total = 0;
+            foreach (var go in _towers)
+            {
+                if (go == null) continue;
+                var tower = go.GetComponent<TowerBase>();
+                total += GameConstants.CostFor(tower != null ? tower.Type : TowerType.Arrow);
+            }
+            return total;
+        }
+
         private void Update()
         {
             // 일시정지 중에는 건설/철거를 아예 막는다. 그렇지 않으면 시간을 멈춰둔 채 원하는 만큼
             // 타워를 정리할 수 있어서 사실상 무한 계획 시간이 된다.
             // (ESC/P 같은 일시정지 입력은 GameManager.HandlePauseInput에서 따로 처리하므로
             //  여기서 일찍 빠져나가도 일시정지를 풀 수 없게 되지는 않는다.)
-            if (Game != null && Game.IsPaused) return;
+            if (!CanBuild) return;
 
             var kb = Keyboard.current;
             if (kb == null) return;
@@ -121,6 +144,7 @@ namespace Defense2D
         /// 숫자키 1~4가 모두 이 경로를 쓴다.</summary>
         public void SelectTowerType(TowerType type)
         {
+            if (!CanBuild) return;
             SelectedType = type;
 
             if (!MenuOpen)
@@ -142,6 +166,7 @@ namespace Defense2D
         /// SelectedType이며, 고스트가 그 타입을 그대로 보여준다.</summary>
         public void BeginPlacement()
         {
+            if (!CanBuild) return;
             CancelSelection(); // 철거 모드와 동시에 켜지지 않도록 먼저 정리
             _placing = true;
             EnsureGhost();
@@ -152,6 +177,7 @@ namespace Defense2D
         /// 일부(GameConstants.TowerRefundPercent)를 돌려받는다. 우클릭이나 ESC로 취소한다.</summary>
         public void BeginRemoval()
         {
+            if (!CanBuild) return;
             CancelSelection(); // 배치 모드와 동시에 켜지지 않도록 먼저 정리
             _removing = true;
             Game.ShowBanner("철거할 타워를 클릭하세요 (우클릭·ESC 취소)");
@@ -277,6 +303,7 @@ namespace Defense2D
 
         private void TryPlace()
         {
+            if (!CanBuild) return;
             Vector3 pos = MouseWorld();
             if (!IsValidPlacement(pos)) return;
 
@@ -358,6 +385,7 @@ namespace Defense2D
 
         private void TryRemove()
         {
+            if (!CanBuild) return;
             var target = FindTowerAt(MouseWorld());
             if (target == null)
             {
@@ -484,20 +512,17 @@ namespace Defense2D
             _towers.RemoveAll(t => t == null);
             if (_towers.Count == 0) return;
 
-            int refunded = 0;
+            int refunded = StageRefundGold();
             foreach (var go in _towers)
             {
-                var tb = go.GetComponent<TowerBase>();
-                refunded += GameConstants.CostFor(tb != null ? tb.Type : TowerType.Arrow);
                 Destroy(go); // TowerBase.OnDisable이 Active 목록에서도 빼 준다
             }
-            int removed = _towers.Count;
             _towers.Clear();
 
             CancelMode();       // 배치/철거 중이었다면 모드도 닫는다
             ClearRemoveHover(); // 방금 파괴된 타워를 가리키고 있었을 수 있다
 
-            // [해설] 배너는 호출부(GameManager.OnWaveClearedHandler)가 스테이지 클리어 소식과
+            // [해설] 배너는 호출부(GameManager.ConfirmNextStage)가 정산 결과와
             // 합쳐서 하나만 띄운다. 여기서 또 띄우면 그 배너를 같은 프레임에 덮어 버린다.
             // 대신 환불 금액은 알려줘야 하므로 골드 표시만 갱신한다.
             Game.RefundGold(refunded);

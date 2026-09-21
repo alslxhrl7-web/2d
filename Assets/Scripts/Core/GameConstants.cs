@@ -14,12 +14,19 @@ namespace Defense2D
 
         // 스테이지 중간 보스 주기(예: 10, 20웨이브). 스테이지의 마지막 웨이브(WavesPerStage,
         // 예: 25)는 이 주기와 별개로 항상 "피날레" 보스전이 된다(아래 StageFinaleBossTimeLimit 참고).
-        public const int BossIntervalWaves = 10;
+        public const int BossIntervalWaves = 5;
 
         /// <summary>[해설] 스테이지 마지막(피날레) 웨이브는 보스와 일반 유닛 무리가 함께 몰아친다.
         /// 이 시간(초) 안에 보스를 처치하지 못하면, 화면에 남은 적 수와 상관없이 즉시 게임오버
         /// 처리된다(WaveManager.Update 참고) — "25웨이브 보스 못 잡으면 게임오버" 요청에 따른 것.</summary>
         public const float StageFinaleBossTimeLimit = 60f;
+
+        // 각 스테이지 5라운드 보스 설정. 체력은 WaveManager의 기존 공식을 사용한다.
+        public const float RoundFiveBossTimeLimit = 60f; // 등장 후 60초 안에 처치
+        public const float RoundFiveFirstInvulnerability = 8f; // 첫 무적 시작 시점
+        public const float RoundFiveInvulnerabilityInterval = 12f; // 무적 시작 사이 간격
+        public const float RoundFiveInvulnerabilityDuration = 2f; // 피해를 받지 않는 시간
+        public const float RoundFiveInvulnerabilityWarning = 1f; // 무적 전 예고 시간
 
         /// <summary>[해설] 건설 비용 변천: 25 → (절반으로) 12 → 15. 12는 너무 헐거워서 다시 올렸다.
         /// 15로 잡으면 시작 골드 30과 정확히 맞아떨어져서(15*2 = 30) "처음에 2개"가 딱 떨어진다.</summary>
@@ -38,6 +45,12 @@ namespace Defense2D
         /// → 첫 수를 "단일 2개로 넓게 깔기"와 "광역 1개 + 잔돈 비축" 중 무엇으로 열지 고르게 하는 것이
         /// 이 값의 목적이다. 비용(TowerCost)을 바꿀 때는 이 값도 같이 봐야 규칙이 유지된다.</summary>
         public const int StartingGold = 30;
+        /// <summary>타워 환급을 포함한 보유 골드의 다음 스테이지 이월 비율.</summary>
+        // [스테이지 이월 % 수정 위치] 0.3f = 30%, 0.5f = 50%, 1f = 100%.
+        // 매 웨이브 보상 비율이 아니라 다음 스테이지로 가져가는 골드 비율이다.
+        // 시작 골드 = StartingGold + 버림((남은 골드 + 타워 환급) × 이 비율).
+        // 예: 남은 100 + 환급 20이면 30 + 버림(120 × 0.3) = 66골드.
+        public const float StageGoldCarryRate = 0.3f;
 
         /// <summary>[해설] 번개탑은 맞은 적에서 주변 적으로 연쇄하는 광역 타워다. 한 방 피해는
         /// 포격탑보다 낮지만 길을 따라 늘어선 적을 줄줄이 훑기 때문에, 값싼 타워(15)와
@@ -65,7 +78,7 @@ namespace Defense2D
         /// 화살탑·빙결탑 15 → 7, 번개탑 25 → 12, 포격탑 30 → 15.</summary>
         public static int RefundFor(TowerType type) => CostFor(type) * TowerRefundPercent / 100;
 
-        public const float PrepPhaseSeconds = 8f; // 준비 단계(건설/배치) 기본 시간
+        public const float PrepPhaseSeconds = 3f; // 준비 단계(건설/배치) 기본 시간
 
         /// <summary>[해설] 직전 웨이브를 "스킵"으로 끝냈을 때만 적용되는 짧은 준비 시간(초).
         /// 스킵은 곧 "빨리 넘어가고 싶다"는 의사표시인데, 그래놓고 다음 웨이브까지 기본 8초를
