@@ -16,6 +16,11 @@ namespace Defense2D
         // 예: 25)는 이 주기와 별개로 항상 "피날레" 보스전이 된다(아래 StageFinaleBossTimeLimit 참고).
         public const int BossIntervalWaves = 5;
 
+        // 일반 웨이브 시작부터 다음 무리가 합류할 때까지의 게임 시간(초).
+        // 최초 1~4라운드만 40초. 누적 6라운드 이후는 35초, 보상 선택 시간은 제외한다.
+        public const float EarlyWaveInterval = 40f;
+        public const float NormalWaveInterval = 35f;
+
         // [일반 몹 난이도 로드맵] 라운드는 게임 전체 누적 번호다.
         // 예: 2스테이지 1라운드는 누적 26라운드. 다음 스테이지에서도 강화가 유지된다.
         // 1~4: 기존 값 → 5: 보스 → 6부터 물량 증가 → 11부터 방패병 강화 → 16부터 빠른 등장.

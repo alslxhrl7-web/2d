@@ -108,24 +108,16 @@ namespace Defense2D
         private const float MinSpawnGap = 0.22f;
         private const float SpawnGapWaveDecay = 0.01f;
 
-        // 웨이브 스킵: 일반 웨이브는 시작 후 이 시간(초)이 지나면 처치 수와 상관없이 바로
-        // 남은 스폰/생존 적을 정리하고 즉시 웨이브 클리어 처리할 수 있다 (보스 웨이브는 스킵 불가).
-        private const float SkipUnlockSeconds = 10f;
+        // Time.time은 일시정지·보상 선택 중 멈추므로 대기 시간이 카운트되지 않는다.
         private float _waveStartTime;
 
         public int KilledThisWave { get; private set; }
         public bool IsBossWave => _isBossWave;
         public bool IsStageFinale => _isStageFinale;
         public int MaxAliveEnemies => _maxAliveCapacity;
-        public bool CanSkipWave => WaveInProgress && !_isBossWave && (Time.time - _waveStartTime) >= SkipUnlockSeconds;
-
-        /// <summary>스킵이 풀리기까지 남은 시간(초). UI에서 카운트다운 표시용으로 쓴다.</summary>
-        public float SkipUnlockRemaining =>
-            _isBossWave ? 0f : Mathf.Max(0f, SkipUnlockSeconds - (Time.time - _waveStartTime));
-
-        /// <summary>직전 웨이브가 "스킵"으로 끝났는지. 스킵으로 끝냈다면 다음 준비 단계를
-        /// 1초로 짧게 준다(GameManager.EnterPrep / GameConstants.PrepPhaseSecondsAfterSkip 참고).</summary>
-        public bool LastWaveSkipped { get; private set; }
+        public float NextWaveTimeRemaining => Mathf.Max(0f,
+            (CurrentWave <= 4 ? GameConstants.EarlyWaveInterval : GameConstants.NormalWaveInterval)
+            - (Time.time - _waveStartTime));
 
         /// <summary>모든 보스의 제한시간(초). 보스 처치 즉시 표시를 종료한다.</summary>
         public float FinaleTimeRemaining =>
@@ -180,6 +172,12 @@ namespace Defense2D
 
         private void Update()
         {
+            if (Game.State != GameState.Defense || Game.IsPaused) return;
+            if (WaveInProgress && !_isBossWave)
+            {
+                CheckWaveClear();
+                return;
+            }
             // 모든 보스는 등장 후 제한시간 내 처치하지 못하면 즉시 패배한다.
             if (!WaveInProgress || !_isTimedBossWave) return;
 
@@ -453,38 +451,27 @@ namespace Defense2D
             CheckWaveClear();
         }
 
-        /// <summary>
-        /// 웨이브 시작 후 SkipUnlockSeconds(10초)가 지나면 즉시 웨이브를 클리어 처리한다
-        /// (보상 선택 → 다음 웨이브로 바로 진행). 화면에 남아있는 적은 강제로 없애지 않고 그대로
-        /// 둔다 — 계속 이동/전투를 이어가며, 처치되면 그때그때 골드가 평소처럼 정상 반영된다
-        /// (다음 웨이브와 함께 공존). 앞으로 예정돼 있던 미스폰 물량만 취소한다.
-        /// </summary>
-        public void SkipWave()
-        {
-            if (!CanSkipWave) return;
-
-            if (_spawnCoroutine != null)
-            {
-                StopCoroutine(_spawnCoroutine);
-                _spawnCoroutine = null;
-            }
-            _allSpawned = true;
-
-            Game.ShowBanner("웨이브 스킵!");
-            WaveInProgress = false;
-            LastWaveSkipped = true; // 다음 준비 단계를 1초로 줄이기 위한 표시
-            OnWaveCleared?.Invoke(CurrentWave);
-        }
-
         private void CheckWaveClear()
         {
-            if (_allSpawned && AliveEnemies <= 0 && WaveInProgress)
+            if (!_allSpawned || !WaveInProgress || Game.State != GameState.Defense || Game.IsPaused) return;
+            if (_isBossWave)
             {
-                WaveInProgress = false;
-                _isStageFinale = false; // 정상 클리어됐으므로 제한시간 판정도 함께 종료
-                LastWaveSkipped = false; // 전멸시켜 정상 클리어한 경우는 준비 시간을 평소대로
-                OnWaveCleared?.Invoke(CurrentWave);
+                // 보스전은 보스와 소환된 잡몹까지 정리한 뒤 다음으로 진행한다.
+                if (AliveEnemies > 0) return;
             }
+            else
+            {
+                // 적을 일찍 다 잡아도 정해진 시간까지 기다린다.
+                if (NextWaveTimeRemaining > 0f) return;
+                // 다음이 보스라면 남은 적을 모두 정리해야 한다.
+                if (NextIsBoss() && AliveEnemies > 0) return;
+            }
+
+            // 일반→일반에서는 남은 적을 없애지 않는다. 다음 웨이브의 적과 함께 남는다.
+            // 먼저 진행 플래그를 내려 같은 프레임에 보상이 두 번 지급되는 것을 막는다.
+            WaveInProgress = false;
+            _isStageFinale = false;
+            OnWaveCleared?.Invoke(CurrentWave);
         }
 
         /// <summary>소환형 보스(3번, 5번)가 추가 잡몹을 불러올 때 사용.</summary>

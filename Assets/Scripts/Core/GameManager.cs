@@ -57,14 +57,14 @@ namespace Defense2D
         /// </summary>
         public void CycleSpeed()
         {
-            if (State == GameState.StageSelect) return;
+            if (State == GameState.StageSelect || State == GameState.Reward) return;
             _speedIndex = (_speedIndex + 1) % SpeedSteps.Length;
             if (!IsPaused) Time.timeScale = GameSpeed;
             UI.RefreshSpeedButton();
         }
 
         /// <summary>게임이 이미 끝난 상태(게임오버/승리)에서는 일시정지를 걸 수 없다.</summary>
-        private bool CanPause => State != GameState.StageSelect && State != GameState.GameOver && State != GameState.Victory;
+        private bool CanPause => State != GameState.Reward && State != GameState.StageSelect && State != GameState.GameOver && State != GameState.Victory;
 
         private void Awake()
         {
@@ -153,11 +153,9 @@ namespace Defense2D
         public void EnterPrep()
         {
             State = GameState.Prep;
-            // [해설] 직전 웨이브를 스킵으로 끝냈다면 준비 시간을 1초로 줄인다 — 빨리 넘어가려고
-            // 스킵한 사람을 다시 8초 기다리게 만들지 않기 위한 것이다.
-            _prepTimer = Waves.LastWaveSkipped
-                ? GameConstants.PrepPhaseSecondsAfterSkip
-                : GameConstants.PrepPhaseSeconds;
+            // 게임 시작·보스전 전후·스테이지 전환에 사용하는 준비 시간.
+            // 일반 웨이브 사이에는 이 단계 없이 보상 선택 직후 다음 무리가 합류한다.
+            _prepTimer = GameConstants.PrepPhaseSeconds;
             // [해설] 스테이지 구조 개편에 따라, "다음 웨이브"를 더 이상 단순 정수 하나로 다루지 않고
             // WaveManager의 Next*() 헬퍼로 스테이지 번호/로컬 웨이브/보스 여부/피날레 여부/보스 패턴을
             // 함께 내다본다.
@@ -317,6 +315,9 @@ namespace Defense2D
             Build?.CloseMenu();
 
             State = GameState.Reward;
+            // 보상 설명을 읽는 동안 적·투사체·게임 시간 모두 정지한다.
+            // 수동 일시정지(IsPaused)와 분리해야 보상 버튼을 선택할 수 있다.
+            Time.timeScale = 0f;
             UI.ShowRewardPanel(OnRewardChosen);
         }
 
@@ -325,6 +326,7 @@ namespace Defense2D
             if (State != GameState.Reward || IsPaused) return;
             ApplyUpgrade(opt);
             UI.HideRewardPanel();
+            Time.timeScale = GameSpeed; // 선택 후 사용하던 배속으로 복귀
             if (_stageTransitionPending)
             {
                 State = GameState.StageSelect;
@@ -333,7 +335,10 @@ namespace Defense2D
                 UI.ShowStageSelectPanel();
                 return;
             }
-            EnterPrep();
+            // 일반→일반은 40/35초에 이미 도달했으므로 추가 준비시간 없이 합류시킨다.
+            // 보스전 전후에는 기존 준비 단계를 제공한다.
+            if (!Waves.IsBossWave && !Waves.NextIsBoss()) StartDefense();
+            else EnterPrep();
         }
 
         /// <summary>"수용력 강화" 보상 1회당 올려 주는 동시 생존 허용 한도.

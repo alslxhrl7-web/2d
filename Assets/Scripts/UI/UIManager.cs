@@ -29,9 +29,8 @@ namespace Defense2D
         private Text _waveText;
         private Text _enemiesText;
 
-        // 준비 단계의 "웨이브 시작" 버튼과 방어 단계의 "웨이브 스킵" 버튼을 하나로 통합한
-        // 단일 액션 버튼. 항상 같은 자리에 있고, 현재 상태에 맞는 동작/문구로 바뀐다.
-        private enum ActionMode { None, StartWave, SkipWave }
+        // 준비 중에는 시작 버튼, 일반 전투 중에는 클릭 불가능한 다음 무리 카운트다운.
+        private enum ActionMode { None, StartWave }
         private Button _actionButton;
         private Text _actionLabel;
         private ActionMode _actionMode = ActionMode.None;
@@ -376,14 +375,11 @@ namespace Defense2D
                 case ActionMode.StartWave:
                     Game.SkipPrep();
                     break;
-                case ActionMode.SkipWave:
-                    Waves.SkipWave();
-                    break;
             }
         }
 
         /// <summary>
-        /// 준비 단계면 "웨이브 시작", 방어 단계(보스 제외)면 "웨이브 스킵"으로 같은 버튼이 동작한다.
+        /// 준비 단계면 "웨이브 시작", 일반 전투 중에는 다음 무리까지 남은 시간을 표시한다.
         /// 매 프레임 현재 게임 상태를 보고 버튼의 표시/문구/클릭 동작을 갱신한다.
         /// </summary>
         /// <summary>
@@ -414,8 +410,8 @@ namespace Defense2D
 
             // 게임이 끝난 뒤에는 멈출 것이 없으므로 일시정지 버튼을 숨긴다.
             bool over = Game.State == GameState.GameOver || Game.State == GameState.Victory;
-            if (_pauseButton != null) _pauseButton.gameObject.SetActive(!over && Game.State != GameState.StageSelect);
-            if (_speedButton != null) _speedButton.gameObject.SetActive(!over && Game.State != GameState.StageSelect);
+            if (_pauseButton != null) _pauseButton.gameObject.SetActive(!over && Game.State != GameState.StageSelect && Game.State != GameState.Reward);
+            if (_speedButton != null) _speedButton.gameObject.SetActive(!over && Game.State != GameState.StageSelect && Game.State != GameState.Reward);
 
             // 일시정지 중에는 "웨이브 시작/스킵" 버튼을 눌러 진행시킬 수 없어야 한다.
             if (Game.IsPaused)
@@ -436,11 +432,12 @@ namespace Defense2D
 
             if (Game.State == GameState.Defense && Waves != null && Waves.WaveInProgress && !Waves.IsBossWave)
             {
-                _actionMode = ActionMode.SkipWave;
+                _actionMode = ActionMode.None;
                 _actionButton.gameObject.SetActive(true);
-                bool canSkip = Waves.CanSkipWave;
-                _actionButton.interactable = canSkip;
-                _actionLabel.text = canSkip ? "웨이브 스킵!" : $"스킵까지 {Mathf.CeilToInt(Waves.SkipUnlockRemaining)}초";
+                _actionButton.interactable = false;
+                float left = Waves.NextWaveTimeRemaining;
+                _actionLabel.text = left > 0f ? $"다음 무리까지 {Mathf.CeilToInt(left)}초"
+                    : Waves.NextIsBoss() ? "남은 적 정리 후 보스" : "남은 몹 등장 대기";
                 return;
             }
 
