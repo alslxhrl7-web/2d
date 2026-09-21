@@ -12,17 +12,33 @@ namespace Defense2D
         public const int WavesPerStage = 25;
         public const int TotalStages = 3;
 
-        // 스테이지 중간 보스 주기(예: 10, 20웨이브). 스테이지의 마지막 웨이브(WavesPerStage,
+        // 스테이지 중간 보스 주기(5, 10, 15, 20웨이브). 스테이지의 마지막 웨이브(WavesPerStage,
         // 예: 25)는 이 주기와 별개로 항상 "피날레" 보스전이 된다(아래 StageFinaleBossTimeLimit 참고).
         public const int BossIntervalWaves = 5;
+
+        // [일반 몹 난이도 로드맵] 라운드는 게임 전체 누적 번호다.
+        // 예: 2스테이지 1라운드는 누적 26라운드. 다음 스테이지에서도 강화가 유지된다.
+        // 1~4: 기존 값 → 5: 보스 → 6부터 물량 증가 → 11부터 방패병 강화 → 16부터 빠른 등장.
+        public const int EnemyCountBoostStartWave = 6;
+        public const float EnemyCountBoostRate = 0.10f; // 0.10 = 10% 추가, 0 = 추가 없음
+        public const int FasterSpawnStartWave = 16;
+        public const float SpawnGapMultiplier = 0.95f; // 기존 간격의 95% = 5% 짧게 (이동 속도 아님)
 
         /// <summary>[해설] 스테이지 마지막(피날레) 웨이브는 보스와 일반 유닛 무리가 함께 몰아친다.
         /// 이 시간(초) 안에 보스를 처치하지 못하면, 화면에 남은 적 수와 상관없이 즉시 게임오버
         /// 처리된다(WaveManager.Update 참고) — "25웨이브 보스 못 잡으면 게임오버" 요청에 따른 것.</summary>
-        public const float StageFinaleBossTimeLimit = 60f;
+        public const float BossTimeLimit = 60f; // 모든 보스가 등장한 순간부터 적용하는 게임 시간
+        public const float StageFinaleBossTimeLimit = BossTimeLimit;
+
+        // 보스 체력 = (기초값 + 누적 등장 번호 × 증가량) × (1 + (등장 번호 - 1) × 추가 증가율).
+        // 1스테이지 5/10/15/20/25라운드: 440 / 682 / 960 / 1274 / 1624.
+        // 다음 스테이지에서는 등장 번호를 이어서 계산하므로 체력이 계속 증가한다.
+        public const float BossHealthBase = 260f;
+        public const float BossHealthPerEncounter = 180f;
+        public const float BossHealthGrowthPerEncounter = 0.1f;
 
         // 각 스테이지 5라운드 보스 설정. 체력은 WaveManager의 기존 공식을 사용한다.
-        public const float RoundFiveBossTimeLimit = 60f; // 등장 후 60초 안에 처치
+        public const float RoundFiveBossTimeLimit = BossTimeLimit;
         public const float RoundFiveFirstInvulnerability = 8f; // 첫 무적 시작 시점
         public const float RoundFiveInvulnerabilityInterval = 12f; // 무적 시작 사이 간격
         public const float RoundFiveInvulnerabilityDuration = 2f; // 피해를 받지 않는 시간

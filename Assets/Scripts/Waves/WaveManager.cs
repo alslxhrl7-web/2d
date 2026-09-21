@@ -38,7 +38,7 @@ namespace Defense2D
         private bool _allSpawned;
         private bool _isBossWave;
         private bool _isStageFinale;
-        private BossController _finaleBoss; // 제한시간 대상 보스: 5라운드 또는 피날레
+        private BossController _finaleBoss; // 현재 보스 인스턴스(모든 보스의 제한시간 판정용)
         private bool _isTimedBossWave;
         private float _bossTimeLimit;
         private float _bossTimerStart;
@@ -52,8 +52,8 @@ namespace Defense2D
         // 이 한도를 늘릴 수 있다(IncreaseAliveCapacity 참고). 스테이지 피날레는 별도로
         // 제한시간 패배 조건도 함께 가진다(아래 Update 참고).
         /// <summary>
-        /// 웨이브에 나오는 일반 적의 수. 60마리에서 시작해 두 웨이브마다 한 마리씩 늘어난다
-        /// (1웨 60 · 25웨 72 · 50웨 84 · 75웨 97).
+        /// 웨이브에 나오는 일반 적의 수. 기본 물량은 60마리에서 두 웨이브마다 한 마리씩 늘어난다.
+        /// 이 기본 물량에 6라운드부터 10%를 추가한다. 중간 보스전은 이 함수를 쓰지 않는다.
         ///
         /// [해설] ★ 이 값이 50이던 시절, 게임의 <b>유일한 패배 조건이 사실상 죽어 있었다</b>.
         /// 패배 판정이 "동시 생존 적 &gt; 한도(50)"인데 한 웨이브에 나오는 적도 정확히 50마리라,
@@ -65,7 +65,26 @@ namespace Defense2D
         /// 진다. 웨이브가 갈수록 적 수도 함께 늘어나기 때문에 후반에도 긴장이 유지된다.
         /// (한도를 올리는 보상은 Upgrades의 AliveCapacity — 아래 IncreaseAliveCapacity 참고.)
         /// </summary>
-        private static int EnemyCountForWave(int globalWave) => 60 + (globalWave - 1) / 2;
+        private static int EnemyCountForWave(int globalWave)
+        {
+            // 기존 기본 물량: 60마리부터 시작해 두 라운드마다 1마리 증가한다.
+            int baseCount = 60 + (globalWave - 1) / 2;
+            if (globalWave < GameConstants.EnemyCountBoostStartWave) return baseCount;
+
+            // 6라운드부터 10% 추가. 몹은 쪼갤 수 없으므로 소수점은 올린다.
+            // 예: 6라운드 기본 62 × 1.10 = 68.2 → 69마리.
+            // 실제 등장과 UI 미리보기가 이 함수를 함께 사용하므로 숫자가 일치한다.
+            return Mathf.CeilToInt(baseCount * (1f + GameConstants.EnemyCountBoostRate));
+        }
+
+        private static float SpawnGapForWave(int globalWave)
+        {
+            // '등장 간격'은 다음 몹이 나올 때까지 기다리는 초 단위 시간이다.
+            float baseGap = Mathf.Max(MinSpawnGap, BaseSpawnGap - globalWave * SpawnGapWaveDecay);
+            // 16라운드부터 기존 간격의 95%. 기존 최소 간격에도 같은 비율을 적용한다.
+            return globalWave >= GameConstants.FasterSpawnStartWave
+                ? baseGap * GameConstants.SpawnGapMultiplier : baseGap;
+        }
 
         /// <summary>일반 적 1마리 처치 보상(골드). 0.5 = "2마리 잡을 때마다 1골드".
         /// 종류(몹/돌진/방패)와 웨이브에 상관없이 고정이다 — 위 SpawnEnemy의 해설 참고.</summary>
@@ -108,7 +127,7 @@ namespace Defense2D
         /// 1초로 짧게 준다(GameManager.EnterPrep / GameConstants.PrepPhaseSecondsAfterSkip 참고).</summary>
         public bool LastWaveSkipped { get; private set; }
 
-        /// <summary>5라운드 또는 피날레 보스 제한시간(초). 보스 처치 즉시 표시를 종료한다.</summary>
+        /// <summary>모든 보스의 제한시간(초). 보스 처치 즉시 표시를 종료한다.</summary>
         public float FinaleTimeRemaining =>
             WaveInProgress && _isTimedBossWave && _finaleBoss != null && !_finaleBoss.IsDead
                 ? Mathf.Max(0f, _bossTimeLimit - (Time.time - _bossTimerStart)) : 0f;
@@ -147,9 +166,8 @@ namespace Defense2D
             WaveDefinition def = BuildWave(LocalWave, StageIndex);
             _isBossWave = def.IsBoss;
             _isStageFinale = def.IsStageFinale;
-            _isTimedBossWave = def.IsStageFinale || (def.IsBoss && LocalWave == 5);
-            _bossTimeLimit = LocalWave == 5 ? GameConstants.RoundFiveBossTimeLimit
-                                          : GameConstants.StageFinaleBossTimeLimit;
+            _isTimedBossWave = def.IsBoss;
+            _bossTimeLimit = GameConstants.BossTimeLimit;
             _finaleBoss = null;
             _waveTotalCount = def.Entries.Count;
             KilledThisWave = 0;
@@ -162,7 +180,7 @@ namespace Defense2D
 
         private void Update()
         {
-            // 5라운드와 피날레에서 제한시간 내 보스를 못 잡으면 즉시 패배한다.
+            // 모든 보스는 등장 후 제한시간 내 처치하지 못하면 즉시 패배한다.
             if (!WaveInProgress || !_isTimedBossWave) return;
 
             bool bossAlive = _finaleBoss != null && !_finaleBoss.IsDead;
@@ -229,25 +247,25 @@ namespace Defense2D
 
         private static bool IsStageFinaleWave(int localWave) => localWave == GameConstants.WavesPerStage;
 
-        /// <summary>보스가 스테이지 안에서 몇 번째 보스 슬롯인지(1, 2, 3 — 10웨이브/20웨이브/피날레).</summary>
+        // 25라운드 / 5라운드 간격 = 스테이지당 보스 5회.
+        private static int BossesPerStage =>
+            (GameConstants.WavesPerStage - 1) / GameConstants.BossIntervalWaves + 1;
+
+        /// <summary>5/10/15/20/25라운드를 보스 등장 순서 1/2/3/4/5로 변환한다.</summary>
         private static int BossSlotForLocalWave(int localWave) =>
-            IsStageFinaleWave(localWave) ? 3 : localWave / GameConstants.BossIntervalWaves;
+            IsStageFinaleWave(localWave) ? BossesPerStage : localWave / GameConstants.BossIntervalWaves;
 
         /// <summary>게임 전체를 통틀어 몇 번째 보스 인카운터인지(1, 2, 3, ... — 스테이지 경계 넘어 계속 누적).
         /// 체력/처치 보상 스케일링에 쓴다(뒤로 갈수록 보스가 꾸준히 강해짐).</summary>
         private static int BossEncounterNumber(int stageIndex, int localWave) =>
-            stageIndex * 3 + BossSlotForLocalWave(localWave);
+            stageIndex * BossesPerStage + BossSlotForLocalWave(localWave);
 
-        /// <summary>보스 능력/이름 패턴 선택(1..5, BossNames.Length만큼 계속 순환). 단, 게임의 진짜
-        /// 마지막 전투(마지막 스테이지의 피날레)는 순환 주기와 상관없이 항상 5번("최종 보스",
-        /// 3페이즈 보스)으로 고정해서, 엔딩이 반드시 가장 극적인 보스로 마무리되게 한다.
-        /// (예: 3스테이지 × 슬롯3 = 9번째 인카운터가 순환상 4번째 패턴에 걸리는 우연 때문에
-        /// "압박 보스"로 게임이 끝나버리는 것을 방지.)</summary>
+        /// <summary>스테이지마다 보스 패턴 1~5를 순서대로 배정한다. 최종전은 항상 5번이다.</summary>
         private static int BossPatternIndexFor(int stageIndex, int localWave)
         {
             if (stageIndex == GameConstants.TotalStages - 1 && IsStageFinaleWave(localWave))
                 return BossNames.Length; // 5 = "최종 보스"
-            return ((BossEncounterNumber(stageIndex, localWave) - 1) % BossNames.Length) + 1;
+            return ((BossSlotForLocalWave(localWave) - 1) % BossNames.Length) + 1;
         }
 
         private WaveDefinition BuildWave(int localWave, int stageIndex)
@@ -271,7 +289,7 @@ namespace Defense2D
                 // [해설] 진입로 A/B는 이제 같은 정사각형을 서로 다른 지점에서 도는 두 출발점이므로,
                 // 웨이브에 상관없이 항상 번갈아 스폰해서 두 지점 모두에서 유닛이 나오게 한다.
                 int pathIndex = i % 2;
-                float gap = (i == 0) ? FirstSpawnDelay : Mathf.Max(MinSpawnGap, BaseSpawnGap - CurrentWave * SpawnGapWaveDecay);
+                float gap = (i == 0) ? FirstSpawnDelay : SpawnGapForWave(CurrentWave);
                 def.Entries.Add(new SpawnEntry { Type = type, PathIndex = pathIndex, Delay = gap });
             }
 
@@ -296,7 +314,11 @@ namespace Defense2D
         {
             if (wave <= 4) return EnemyType.Mob;
             if (wave <= 9) return (i % 3 == 0) ? EnemyType.Charger : EnemyType.Mob;
-            if (wave <= 14) return (i % 4 == 0) ? EnemyType.Shield : (i % 3 == 0) ? EnemyType.Charger : EnemyType.Mob;
+            // 11~14라운드: 12마리 단위로 방패병 4, 돌진병 3, 잡몹 5.
+            // 기존 방패병 3/12(25%)에서 4/12(약 33%)로 증가. 잡몹 한 자리를 바꾼다.
+            // %는 나머지 연산이다. i % 12 == 1은 매 12마리 중 두 번째 자리를 뜻한다.
+            if (wave <= 14) return (i % 4 == 0 || i % 12 == 1)
+                ? EnemyType.Shield : (i % 3 == 0) ? EnemyType.Charger : EnemyType.Mob;
             if (wave <= 19) return (i % 3 == 0) ? EnemyType.Shield : (i % 2 == 0) ? EnemyType.Charger : EnemyType.Mob;
             return (EnemyType)(i % 3); // 21웨이브 이후: 모든 적 타입 등장(스테이지 경계와 무관하게 계속 유지)
         }
@@ -313,8 +335,8 @@ namespace Defense2D
                 if (_isTimedBossWave && entry.Type == EnemyType.Boss)
                 {
                     _finaleBoss = ec as BossController;
-                    // 5라운드는 실제 등장 순간부터 60초. 기존 피날레의 기준은 유지한다.
-                    _bossTimerStart = def.IsStageFinale ? _waveStartTime : Time.time;
+                    // 스폰 대기 시간은 빼고, 실제 보스가 등장한 순간부터 60초를 센다.
+                    _bossTimerStart = Time.time;
                 }
             }
             _allSpawned = true;
@@ -365,7 +387,8 @@ namespace Defense2D
                 var boss = go.AddComponent<BossController>();
                 // [해설] 체력/보상은 "패턴 번호(1..5, 순환)"가 아니라 "인카운터 번호(1, 2, 3, ... 계속 누적)"
                 // 기준으로 커지므로, 보스 패턴이 반복돼도 뒤로 갈수록 꾸준히 강해진다.
-                float baseHp = (260f + bossEncounterNumber * 180f) * (1f + (bossEncounterNumber - 1) * 0.1f);
+                float baseHp = (GameConstants.BossHealthBase + bossEncounterNumber * GameConstants.BossHealthPerEncounter)
+                    * (1f + (bossEncounterNumber - 1) * GameConstants.BossHealthGrowthPerEncounter);
                 // [해설] 보스 보상도 60+30n → 15+10n으로 크게 낮췄다. 일반 처치 보상을 대폭 줄인
                 // 뒤에도 보스만 예전 값을 유지하면 보스 한 마리(약 106골드)가 그때까지 번 돈의
                 // 절반을 차지해버려서, 경제 너프가 사실상 무의미해지기 때문이다.

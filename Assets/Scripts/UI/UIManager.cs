@@ -634,7 +634,7 @@ namespace Defense2D
             if (nextIsFinale)
                 _prepText.text = $"STAGE {stageNumber} - 피날레! 보스 + 대규모 유닛 (제한시간 {Mathf.RoundToInt(GameConstants.StageFinaleBossTimeLimit)}초)";
             else if (nextIsBoss)
-                _prepText.text = $"STAGE {stageNumber} · WAVE {localWave} - 보스 웨이브 준비!";
+                _prepText.text = $"STAGE {stageNumber} · WAVE {localWave} - 보스 (제한시간 {GameConstants.BossTimeLimit:0}초)";
             else
                 _prepText.text = $"STAGE {stageNumber} · WAVE {localWave} 준비 중...";
 
