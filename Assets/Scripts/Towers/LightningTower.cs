@@ -30,7 +30,7 @@ namespace Defense2D
         public void Setup()
         {
             Type = TowerType.Lightning;
-            Range = 2.45f;        // BuildManager.TowerRangeFor(Lightning)과 반드시 같아야 한다
+            Range = 4.0f;        // BuildManager.TowerRangeFor(Lightning)과 반드시 같아야 한다
             FireInterval = 1.3f;
             Damage = 14f;
         }
@@ -41,7 +41,7 @@ namespace Defense2D
         /// <summary>직전에 맞은 적을 기준으로, 이 반경 안에 있는 적에게만 번개가 튄다.
         /// 사거리(Range)와는 별개다 — 일단 사거리 안의 적을 때리면, 그 다음부터는 타워에서
         /// 아무리 멀어져도 적끼리 가깝기만 하면 계속 이어진다.</summary>
-        private const float ChainJumpRadius = 2.0f;
+        private const float ChainJumpRadius = 5.0f;
 
         /// <summary>한 번 튈 때마다 피해에 곱해지는 감쇠율. 14 → 9.1 → 5.9 → 3.8 (합계 32.8).</summary>
         private const float ChainFalloff = 0.65f;

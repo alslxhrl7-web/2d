@@ -277,7 +277,7 @@ namespace Defense2D
             TowerType.Arrow => 2.6f,
             TowerType.Ice => 2.1f,
             TowerType.Cannon => 2.7f,
-            TowerType.Lightning => 2.45f,
+            TowerType.Lightning => 4f,
             _ => 2.5f
         };
 
