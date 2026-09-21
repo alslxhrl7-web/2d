@@ -21,9 +21,9 @@ namespace Defense2D
         public void Setup()
         {
             Type = TowerType.Cannon;
-            Range = 2.7f; // ※ BuildManager.TowerRangeFor(Cannon)과 반드시 같아야 한다
+            Range = 2.5f; // ※ BuildManager.TowerRangeFor(Cannon)과 반드시 같아야 한다
             FireInterval = 1.5f;
-            Damage = 26f; // 공격력 증가 (14 → 26)
+            Damage = 24f; // 공격력 증가 (14 → 24)
         }
 
         // [해설] 폭발(스플래시) 반경. 값이 클수록 한 발로 더 넓게 "주변 유닛"까지 피해가 퍼진다.

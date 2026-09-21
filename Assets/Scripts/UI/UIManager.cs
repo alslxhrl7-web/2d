@@ -29,8 +29,8 @@ namespace Defense2D
         private Text _waveText;
         private Text _enemiesText;
 
-        // 준비 중에는 시작 버튼, 일반 전투 중에는 클릭 불가능한 다음 무리 카운트다운.
-        private enum ActionMode { None, StartWave }
+        // 준비 중에는 시작 버튼, 일반 전투 중에는 카운트다운과 조건부 조기 호출 버튼.
+        private enum ActionMode { None, StartWave, CallNextWaveEarly }
         private Button _actionButton;
         private Text _actionLabel;
         private ActionMode _actionMode = ActionMode.None;
@@ -269,8 +269,9 @@ namespace Defense2D
             _waveText = CreateText("WaveText", bar, "STAGE 1 · WAVE 00", 22, new Color(0.4f, 0.75f, 1f), TextAnchor.MiddleCenter,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(260, 30), new Vector2(0, -20));
 
-            _enemiesText = CreateText("EnemiesText", bar, "남은 적 0", 16, Color.white, TextAnchor.MiddleRight,
-                new Vector2(1, 1), new Vector2(1, 1), new Vector2(160, 24), new Vector2(-190, -16));
+            // 배속 버튼과 같은 가로 위치(x=-150), 아래쪽(y=-46)에 가운데 정렬한다.
+            _enemiesText = CreateText("EnemiesText", bar, "남은 적 0", 16, Color.white, TextAnchor.MiddleCenter,
+                new Vector2(1, 1), new Vector2(1, 1), new Vector2(160, 24), new Vector2(-150, -46));
 
             // [해설] "위에 골드표기창은 지우고" 요청에 따라 상단 바의 골드 표시(GoldText)를
             // 제거했다. 건설 메뉴(TAB) 안의 "보유 골드" 표시(_buildGoldText)는 그대로 남아있어
@@ -285,7 +286,7 @@ namespace Defense2D
             // 줄였을 때(150x34→128x28) Text 기본 Wrap+Truncate 설정 때문에 "웨이브 시작"의
             // 마지막 글자가 잘려 보이는 문제가 있었다 — 폭을 140으로 살짝 늘리고, 라벨의
             // overflow 모드를 Overflow로 바꿔 어떤 문구든(스킵까지 30초 등) 절대 잘리지 않게 했다.
-            _actionButton = CreateButton("ActionBtn", _canvas.transform, "웨이브 시작", new Vector2(140, 30),
+            _actionButton = CreateButton("ActionBtn", _canvas.transform, "웨이브 시작", new Vector2(230, 48),
                 new Vector2(-190, -90), new Vector2(1, 1), new Vector2(1, 1),
                 OnActionButtonClicked, new Color(0.2f, 0.55f, 0.25f, 0.92f));
             _actionLabel = _actionButton.GetComponentInChildren<Text>();
@@ -375,6 +376,9 @@ namespace Defense2D
                 case ActionMode.StartWave:
                     Game.SkipPrep();
                     break;
+                case ActionMode.CallNextWaveEarly:
+                    Waves.CallNextWaveEarly();
+                    break;
             }
         }
 
@@ -432,12 +436,16 @@ namespace Defense2D
 
             if (Game.State == GameState.Defense && Waves != null && Waves.WaveInProgress && !Waves.IsBossWave)
             {
-                _actionMode = ActionMode.None;
+                bool canCall = Waves.CanCallNextWaveEarly;
+                _actionMode = canCall ? ActionMode.CallNextWaveEarly : ActionMode.None;
                 _actionButton.gameObject.SetActive(true);
-                _actionButton.interactable = false;
+                _actionButton.interactable = canCall;
                 float left = Waves.NextWaveTimeRemaining;
-                _actionLabel.text = left > 0f ? $"다음 무리까지 {Mathf.CeilToInt(left)}초"
-                    : Waves.NextIsBoss() ? "남은 적 정리 후 보스" : "남은 몹 등장 대기";
+                string countdown = left > 0f ? $"자동 진행까지 {Mathf.CeilToInt(left)}초" : "자동 진행 대기";
+                _actionLabel.text = canCall ? $"다음 웨이브 조기 호출\n{countdown}"
+                    : Waves.NextIsBoss() && Waves.AliveEnemies > 0
+                        ? $"남은 적 정리 후 보스\n{countdown}"
+                        : $"모든 몹 등장 후 호출 가능\n{countdown}";
                 return;
             }
 

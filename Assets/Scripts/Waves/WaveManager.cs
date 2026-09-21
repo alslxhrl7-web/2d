@@ -119,6 +119,19 @@ namespace Defense2D
             (CurrentWave <= 4 ? GameConstants.EarlyWaveInterval : GameConstants.NormalWaveInterval)
             - (Time.time - _waveStartTime));
 
+        // 조기 호출은 예정된 몹이 모두 등장한 뒤에만 허용한다.
+        // 일반→일반은 남은 적 유지, 일반→보스는 남은 적이 0마리여야 한다.
+        public bool CanCallNextWaveEarly => Game != null && Game.State == GameState.Defense &&
+            !Game.IsPaused && WaveInProgress && !_isBossWave && _allSpawned &&
+            (!NextIsBoss() || AliveEnemies <= 0);
+
+        public void CallNextWaveEarly()
+        {
+            // UI 표시 외에도 여기서 재검사해 중복 클릭·일시정지 중 호출을 막는다.
+            if (!CanCallNextWaveEarly) return;
+            CompleteCurrentWave();
+        }
+
         /// <summary>모든 보스의 제한시간(초). 보스 처치 즉시 표시를 종료한다.</summary>
         public float FinaleTimeRemaining =>
             WaveInProgress && _isTimedBossWave && _finaleBoss != null && !_finaleBoss.IsDead
@@ -467,6 +480,13 @@ namespace Defense2D
                 if (NextIsBoss() && AliveEnemies > 0) return;
             }
 
+            CompleteCurrentWave();
+        }
+
+        private void CompleteCurrentWave()
+        {
+            if (!WaveInProgress) return;
+            // 자동 진행과 조기 호출은 같은 보상 처리 경로를 사용한다. 추가 골드는 없다.
             // 일반→일반에서는 남은 적을 없애지 않는다. 다음 웨이브의 적과 함께 남는다.
             // 먼저 진행 플래그를 내려 같은 프레임에 보상이 두 번 지급되는 것을 막는다.
             WaveInProgress = false;

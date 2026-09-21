@@ -275,9 +275,9 @@ namespace Defense2D
             // ※ 각 타워 Setup()의 Range와 반드시 같아야 한다. 2.5D 전환에 맞춰 일괄 하향했다
             //   (ArrowTower.Setup의 해설 참고).
             TowerType.Arrow => 2.6f,
-            TowerType.Ice => 2.1f,
-            TowerType.Cannon => 2.7f,
-            TowerType.Lightning => 4f,
+            TowerType.Ice => 3.5f,
+            TowerType.Cannon => 2.5f,
+            TowerType.Lightning => 3f,
             _ => 2.5f
         };
 

@@ -30,7 +30,7 @@ namespace Defense2D
         public void Setup()
         {
             Type = TowerType.Lightning;
-            Range = 4.0f;        // BuildManager.TowerRangeFor(Lightning)과 반드시 같아야 한다
+            Range = 3.0f;        // BuildManager.TowerRangeFor(Lightning)과 반드시 같아야 한다  //밸런스 조절 사거리 3로 증가
             FireInterval = 1.3f;
             Damage = 14f;
         }
@@ -43,8 +43,8 @@ namespace Defense2D
         /// 아무리 멀어져도 적끼리 가깝기만 하면 계속 이어진다.</summary>
         private const float ChainJumpRadius = 5.0f;
 
-        /// <summary>한 번 튈 때마다 피해에 곱해지는 감쇠율. 14 → 9.1 → 5.9 → 3.8 (합계 32.8).</summary>
-        private const float ChainFalloff = 0.65f;
+        // <summary>한 번 튈 때마다 피해에 곱해지는 감쇠율. 14 → 9.1 → 5.9 → 3.8 (합계 32.8).</summary>
+        private const float ChainFalloff = 0.7f;
 
         /// <summary>이번 발사에서 이미 맞은 적 목록. 같은 적을 두 번 때리거나 두 적 사이를
         /// 무한히 왕복하는 것을 막는다.

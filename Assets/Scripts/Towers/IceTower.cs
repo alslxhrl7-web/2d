@@ -21,7 +21,7 @@ namespace Defense2D
         public void Setup()
         {
             Type = TowerType.Ice;
-            Range = 2.1f;
+            Range = 3.5f;
             FireInterval = 1.1f;
             Damage = 4.5f; // 밸런스 조정 (3 → 4.5)
         }

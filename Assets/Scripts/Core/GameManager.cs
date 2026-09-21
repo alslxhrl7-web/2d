@@ -350,10 +350,10 @@ namespace Defense2D
         /// 75웨이브쯤에는 배율이 수천만 배가 되는데, 적은 선형으로만 강해지므로 게임이
         /// 성립하지 않는다(자세한 근거는 TowerBase._damageMultipliers 해설).
         /// UI 문구는 이 값을 읽어 자동으로 표시하므로 아래 숫자만 수정하면 된다.</summary>
-        // [타워 강화 보상 % 수정 위치] 0.08f = 기본 공격력의 8%만큼 추가.
+        // [타워 강화 보상 % 수정 위치] 0.05f = 기본 공격력의 5%만큼 추가.
         // +10%는 0.10f, +5%는 0.05f. 선택한 타워 종류에만 적용한다.
         // 최종 공격력은 TowerBase.MaxDamageMultiplier(현재 2.5배)를 넘지 않는다.
-        public const float TowerDamageBonus = 0.08f;
+        public const float TowerDamageBonus = 0.05f;
 
         private void ApplyUpgrade(UpgradeOption opt)
         {
